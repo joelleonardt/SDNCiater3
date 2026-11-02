@@ -1,0 +1,27 @@
+﻿# Dependencies
+node_modules/
+
+# Build output
+dist/
+dist-ssr/
+
+# Environment variables — NEVER commit these
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+npm-debug.log*
+
+# Editor / OS
+.DS_Store
+Thumbs.db
+*.swp
+
+# Vite / TypeScript cache
+node_modules/.tmp/
+*.tsbuildinfo
+
+# Kiro AI workspace (optional — remove this block if you want to commit specs)
+# .kiro/
