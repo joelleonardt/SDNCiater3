@@ -1,11 +1,13 @@
 import * as React from 'react'
-import { Users } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { Users, Plus, Search } from 'lucide-react'
+import { cn, formatDate } from '@/lib/utils'
+import { useAuthStore } from '@/stores/authStore'
 import PageHeader from '@/components/ui/PageHeader'
 import DataTable, { type ColumnDef } from '@/components/ui/DataTable'
 import ConfirmDialog from '@/components/ui/ConfirmDialog'
 import EmptyState from '@/components/ui/EmptyState'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { useUsers } from './useUsers'
 import UserFormModal from './UserFormModal'
 import type { Profile } from '@/types/database.types'
@@ -37,20 +39,23 @@ const PAGE_SIZE = 10
 
 /**
  * Halaman manajemen pengguna.
- * - Filter peran client-side
- * - Toggle aktif/nonaktif dengan konfirmasi
- * - Edit peran via UserFormModal
- * Requirements: 12.1–12.5
+ * - Staf_Admin: dapat menambah akun pengguna via UI, mengedit peran, dan toggle aktif/nonaktif (Req 12.3–12.8).
+ * - Kepala_Sekolah: hanya melihat data pengguna secara read-only (Req 12.9).
+ * - Menampilkan nama lengkap, email, peran, status, dan tanggal dibuat (Req 12.2).
  */
 export default function UsersPage() {
-  const { users, loading, updateRole, toggleActive } = useUsers()
+  const profile = useAuthStore((s) => s.profile)
+  const canManageUsers = profile?.role === 'Staf_Admin'
+  const { users, loading, addUser, updateRole, toggleActive } = useUsers()
 
   // ── Filter & pagination ───────────────────────────────────────────────────
   const [roleFilter, setRoleFilter] = React.useState<Role | 'Semua'>('Semua')
+  const [search, setSearch] = React.useState('')
   const [pageIndex, setPageIndex] = React.useState(0)
   const [pageSize, setPageSize] = React.useState(PAGE_SIZE)
 
-  // ── Modal edit ────────────────────────────────────────────────────────────
+  // ── Modal tambah & edit ───────────────────────────────────────────────────
+  const [createOpen, setCreateOpen] = React.useState(false)
   const [editTarget, setEditTarget] = React.useState<Profile | null>(null)
 
   // ── Konfirmasi toggle aktif ───────────────────────────────────────────────
@@ -59,12 +64,23 @@ export default function UsersPage() {
 
   // ── Filter lokal ──────────────────────────────────────────────────────────
   const filtered = React.useMemo(() => {
-    if (roleFilter === 'Semua') return users
-    return users.filter((u) => u.role === roleFilter)
-  }, [users, roleFilter])
+    let result = users
+    if (roleFilter !== 'Semua') {
+      result = result.filter((u) => u.role === roleFilter)
+    }
+    const q = search.trim().toLowerCase()
+    if (q) {
+      result = result.filter(
+        (u) =>
+          u.full_name.toLowerCase().includes(q) ||
+          (u.email ?? '').toLowerCase().includes(q)
+      )
+    }
+    return result
+  }, [users, roleFilter, search])
 
   // Reset ke halaman 1 saat filter berubah
-  React.useEffect(() => { setPageIndex(0) }, [roleFilter])
+  React.useEffect(() => { setPageIndex(0) }, [roleFilter, search])
 
   // ── Pagination ────────────────────────────────────────────────────────────
   const paginated = React.useMemo(
@@ -81,6 +97,15 @@ export default function UsersPage() {
         cell: (row) => <span className="font-medium">{row.full_name}</span>,
       },
       {
+        key: 'email',
+        header: 'Email',
+        cell: (row) => (
+          <span className="text-muted-foreground text-sm">
+            {row.email || '—'}
+          </span>
+        ),
+      },
+      {
         key: 'role',
         header: 'Peran',
         cell: (row) => (
@@ -93,47 +118,69 @@ export default function UsersPage() {
             {roleLabel[row.role]}
           </span>
         ),
-        className: 'w-40',
+        className: 'w-36',
       },
       {
         key: 'is_active',
         header: 'Status',
-        className: 'w-32',
-        cell: (row) => (
-          <button
-            type="button"
-            onClick={() => setToggleTarget(row)}
-            className={cn(
-              'inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium',
-              'cursor-pointer transition-opacity hover:opacity-80',
-              row.is_active
-                ? 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300'
-                : 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400',
-            )}
-            aria-label={row.is_active ? 'Nonaktifkan pengguna' : 'Aktifkan pengguna'}
-          >
-            {row.is_active ? 'Aktif' : 'Nonaktif'}
-          </button>
-        ),
+        className: 'w-28',
+        cell: (row) =>
+          canManageUsers ? (
+            <button
+              type="button"
+              onClick={() => setToggleTarget(row)}
+              className={cn(
+                'inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium',
+                'cursor-pointer transition-opacity hover:opacity-80',
+                row.is_active
+                  ? 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300'
+                  : 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400',
+              )}
+              aria-label={row.is_active ? 'Nonaktifkan pengguna' : 'Aktifkan pengguna'}
+            >
+              {row.is_active ? 'Aktif' : 'Nonaktif'}
+            </button>
+          ) : (
+            <span
+              className={cn(
+                'inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium',
+                row.is_active
+                  ? 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300'
+                  : 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400',
+              )}
+            >
+              {row.is_active ? 'Aktif' : 'Nonaktif'}
+            </span>
+          ),
       },
       {
-        key: 'actions',
-        header: 'Aksi',
-        className: 'w-20 text-right',
-        cell: (row) => (
-          <div className="flex justify-end">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setEditTarget(row)}
-            >
-              Edit
-            </Button>
-          </div>
-        ),
+        key: 'created_at',
+        header: 'Tanggal Dibuat',
+        className: 'w-36',
+        cell: (row) => (row.created_at ? formatDate(row.created_at) : '—'),
       },
+      ...(canManageUsers
+        ? [
+            {
+              key: 'actions',
+              header: 'Aksi',
+              className: 'w-20 text-right',
+              cell: (row: Profile) => (
+                <div className="flex justify-end">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setEditTarget(row)}
+                  >
+                    Edit
+                  </Button>
+                </div>
+              ),
+            } satisfies ColumnDef<Profile>,
+          ]
+        : []),
     ],
-    [],
+    [canManageUsers],
   )
 
   // ── Toggle aktif ──────────────────────────────────────────────────────────
@@ -153,21 +200,42 @@ export default function UsersPage() {
     <div className="space-y-6 p-6">
       <PageHeader
         title="Pengguna"
-        description="Untuk menambahkan pengguna baru, gunakan Supabase Dashboard"
+        description="Kelola akun pengguna dan penetapan peran sistem."
+        actions={
+          canManageUsers && (
+            <Button onClick={() => setCreateOpen(true)}>
+              <Plus className="mr-2 h-4 w-4" />
+              Tambah Pengguna
+            </Button>
+          )
+        }
       />
 
-      {/* Filter peran */}
-      <div className="flex flex-wrap gap-2" role="group" aria-label="Filter peran">
-        {ROLE_FILTER_OPTIONS.map((opt) => (
-          <Button
-            key={opt.value}
-            variant={roleFilter === opt.value ? 'default' : 'outline'}
-            size="sm"
-            onClick={() => setRoleFilter(opt.value)}
-          >
-            {opt.label}
-          </Button>
-        ))}
+      {/* Filter peran & pencarian */}
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-wrap gap-2" role="group" aria-label="Filter peran">
+          {ROLE_FILTER_OPTIONS.map((opt) => (
+            <Button
+              key={opt.value}
+              variant={roleFilter === opt.value ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setRoleFilter(opt.value)}
+            >
+              {opt.label}
+            </Button>
+          ))}
+        </div>
+
+        {/* Search */}
+        <div className="relative w-full sm:w-64">
+          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Cari nama atau email…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="pl-8"
+          />
+        </div>
       </div>
 
       {/* Tabel atau empty state */}
@@ -176,9 +244,11 @@ export default function UsersPage() {
           icon={Users}
           title="Tidak ada pengguna"
           description={
-            roleFilter !== 'Semua'
-              ? `Tidak ada pengguna dengan peran ${roleLabel[roleFilter as Role]}.`
-              : 'Belum ada pengguna terdaftar.'
+            search
+              ? 'Tidak ditemukan pengguna yang sesuai dengan pencarian.'
+              : roleFilter !== 'Semua'
+                ? `Tidak ada pengguna dengan peran ${roleLabel[roleFilter as Role]}.`
+                : 'Belum ada pengguna terdaftar.'
           }
         />
       ) : (
@@ -192,6 +262,14 @@ export default function UsersPage() {
           onPageSizeChange={(size) => { setPageSize(size); setPageIndex(0) }}
           isLoading={loading}
           emptyMessage="Tidak ada pengguna yang sesuai."
+        />
+      )}
+
+      {/* Modal tambah pengguna */}
+      {createOpen && (
+        <UserFormModal
+          onClose={() => setCreateOpen(false)}
+          onCreate={addUser}
         />
       )}
 

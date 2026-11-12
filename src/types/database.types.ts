@@ -11,6 +11,7 @@ export type Database = {
           id: string
           school_id: string | null
           full_name: string
+          email: string | null
           role: 'Guru' | 'Kepala_Sekolah' | 'Staf_Admin'
           avatar_url: string | null
           is_active: boolean
@@ -20,6 +21,7 @@ export type Database = {
           id: string
           school_id?: string | null
           full_name: string
+          email?: string | null
           role: 'Guru' | 'Kepala_Sekolah' | 'Staf_Admin'
           avatar_url?: string | null
           is_active?: boolean
@@ -29,6 +31,7 @@ export type Database = {
           id?: string
           school_id?: string | null
           full_name?: string
+          email?: string | null
           role?: 'Guru' | 'Kepala_Sekolah' | 'Staf_Admin'
           avatar_url?: string | null
           is_active?: boolean
@@ -188,7 +191,7 @@ export type Database = {
           class_id: string
           student_id: string
           date: string
-          status: 'Hadir' | 'Sakit' | 'Izin' | 'Alpa'
+          status: 'Hadir' | 'Sakit' | 'Izin' | 'Alpa' | 'Alfa'
           created_at: string
         }
         Insert: {
@@ -196,7 +199,7 @@ export type Database = {
           class_id: string
           student_id: string
           date: string
-          status: 'Hadir' | 'Sakit' | 'Izin' | 'Alpa'
+          status: 'Hadir' | 'Sakit' | 'Izin' | 'Alpa' | 'Alfa'
           created_at?: string
         }
         Update: {
@@ -204,7 +207,7 @@ export type Database = {
           class_id?: string
           student_id?: string
           date?: string
-          status?: 'Hadir' | 'Sakit' | 'Izin' | 'Alpa'
+          status?: 'Hadir' | 'Sakit' | 'Izin' | 'Alpa' | 'Alfa'
           created_at?: string
         }
       }

@@ -1,4 +1,4 @@
-﻿import * as React from 'react'
+import * as React from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -8,15 +8,20 @@ import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
 import type { Note } from '@/types/database.types'
 
+function todayISO() { return new Date().toISOString().slice(0, 10) }
+
 const schema = z.object({
   category: z.enum(['Perilaku', 'Prestasi']),
-  note_date: z.string().min(1, 'Tanggal wajib diisi'),
+  note_date: z
+    .string()
+    .min(1, 'Tanggal wajib diisi')
+    .refine((val) => val <= todayISO(), {
+      message: 'Tanggal catatan tidak boleh di masa depan',
+    }),
   content: z.string().min(1, 'Isi catatan wajib diisi').max(1000, 'Maksimal 1000 karakter'),
 })
 
 type FormValues = z.infer<typeof schema>
-
-function todayISO() { return new Date().toISOString().slice(0, 10) }
 
 interface Props {
   note?: Note

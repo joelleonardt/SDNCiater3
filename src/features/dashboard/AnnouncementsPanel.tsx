@@ -1,23 +1,9 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { FileText } from 'lucide-react'
-import { supabase } from '@/services/supabase'
+import { getRecentNotesForDashboard, type DashboardNoteItem } from '@/services/dashboardService'
 import { useAuthStore } from '@/stores/authStore'
 import { cn } from '@/lib/utils'
-
-interface NoteItem {
-  id: string
-  student_name: string
-  category: 'Perilaku' | 'Prestasi'
-  content: string
-  note_date: string
-}
-
-function sevenDaysAgo(): string {
-  const d = new Date()
-  d.setDate(d.getDate() - 7)
-  return d.toISOString().slice(0, 10)
-}
 
 function formatDate(dateStr: string): string {
   return new Date(dateStr).toLocaleDateString('id-ID', {
@@ -28,33 +14,17 @@ function formatDate(dateStr: string): string {
 
 export default function AnnouncementsPanel() {
   const profile = useAuthStore((s) => s.profile)
-  const [items, setItems] = useState<NoteItem[]>([])
+  const [items, setItems] = useState<DashboardNoteItem[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     if (!profile?.school_id) return
 
-    supabase
-      .from('notes')
-      .select('id, category, content, note_date, students!inner(id, school_id, full_name)')
-      .eq('students.school_id', profile.school_id)
-      .gte('note_date', sevenDaysAgo())
-      .order('note_date', { ascending: false })
-      .limit(5)
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      .then(({ data, error }: { data: any[] | null; error: unknown }) => {
-        if (!error && data) {
-          setItems(
-            data.map((row) => ({
-              id: row.id,
-              category: row.category,
-              content: row.content,
-              note_date: row.note_date,
-              student_name:
-                (row.students as { full_name: string } | null)?.full_name ?? '—',
-            }))
-          )
-        }
+    getRecentNotesForDashboard(profile.school_id)
+      .then((data) => {
+        setItems(data)
+      })
+      .finally(() => {
         setLoading(false)
       })
   }, [profile?.school_id])

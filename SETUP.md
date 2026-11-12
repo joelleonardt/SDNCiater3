@@ -59,26 +59,26 @@ File seed menyediakan data awal untuk keperluan pengembangan dan pengujian (1 se
 
 ---
 
-## Langkah 5 — Konfigurasi File `.env`
+## Langkah 5 — Konfigurasi File `.env.local` (atau `.env`)
 
 Variabel lingkungan menyimpan kredensial Supabase dan **tidak boleh** di-commit ke repository.
 
-1. Di root folder repository, salin file contoh:
+1. Di root folder repository, salin file contoh ke `.env.local` (atau `.env`):
    ```bash
-   cp .env.example .env
+   cp .env.example .env.local
    ```
    Di Windows (PowerShell):
    ```powershell
-   Copy-Item .env.example .env
+   Copy-Item .env.example .env.local
    ```
 
-2. Buka file `.env` dengan editor teks, lalu isi nilai yang telah Anda catat di Langkah 1:
+2. Buka file `.env.local` dengan editor teks, lalu isi nilai yang telah Anda catat di Langkah 1:
    ```env
    VITE_SUPABASE_URL=https://xxxxxxxxxxxx.supabase.co
    VITE_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
    ```
 
-3. Simpan file. Pastikan `.env` sudah masuk dalam daftar `.gitignore` — **jangan pernah commit file ini**.
+3. Simpan file. Pastikan `.env` dan `.env.local` sudah masuk dalam daftar `.gitignore` — **jangan pernah commit file ini**.
 
 ---
 

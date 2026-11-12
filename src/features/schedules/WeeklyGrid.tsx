@@ -1,25 +1,26 @@
 import * as React from 'react'
 import { Plus } from 'lucide-react'
 import type { Schedule } from '@/types/database.types'
+import type { ScheduleWithDetails } from '@/services/scheduleService'
 import { HARI } from './ScheduleFormModal'
 
 // ─── Props ───────────────────────────────────────────────────────────────────
 
 export interface WeeklyGridProps {
-  schedules: Schedule[]
+  schedules: (Schedule | ScheduleWithDetails)[]
   /** Dipanggil saat klik slot jadwal yang ada (untuk edit) */
-  onEdit: (schedule: Schedule) => void
+  onEdit: (schedule: ScheduleWithDetails) => void
   /** Dipanggil saat klik "+" di kolom yang kosong atau tanpa slot */
   onAdd: (dayOfWeek: number) => void
   /** Dipanggil saat klik hapus pada slot */
-  onDelete: (schedule: Schedule) => void
+  onDelete: (schedule: ScheduleWithDetails) => void
   canEdit: boolean
 }
 
 /**
  * Grid mingguan 6 kolom (Senin–Sabtu).
  * Setiap kolom menampilkan daftar slot jadwal hari itu.
- * Requirements: 10.1, 10.2
+ * Requirements: 8.1, 8.2
  */
 export default function WeeklyGrid({
   schedules,
@@ -30,11 +31,12 @@ export default function WeeklyGrid({
 }: WeeklyGridProps) {
   // Kelompokkan jadwal per hari
   const byDay = React.useMemo(() => {
-    const map: Record<number, Schedule[]> = {}
+    const map: Record<number, ScheduleWithDetails[]> = {}
     for (const h of HARI) map[h.value] = []
     for (const s of schedules) {
-      if (map[s.day_of_week]) map[s.day_of_week].push(s)
-      else map[s.day_of_week] = [s]
+      const item = s as ScheduleWithDetails
+      if (map[item.day_of_week]) map[item.day_of_week].push(item)
+      else map[item.day_of_week] = [item]
     }
     // Urutkan per hari berdasarkan jam mulai
     for (const day of Object.keys(map)) {
@@ -75,7 +77,13 @@ export default function WeeklyGrid({
                   key={s.id}
                   className="group relative rounded-md border border-border bg-card px-3 py-2 text-sm shadow-sm"
                 >
-                  <p className="font-medium leading-snug text-foreground">{s.subject}</p>
+                  <p className="font-semibold leading-snug text-foreground">{s.subject}</p>
+                  {s.class_name && (
+                    <p className="mt-0.5 text-xs font-medium text-primary">Kelas {s.class_name}</p>
+                  )}
+                  {s.teacher_name && (
+                    <p className="text-xs text-muted-foreground truncate">{s.teacher_name}</p>
+                  )}
                   <p className="mt-0.5 text-xs text-muted-foreground">
                     {s.start_time.slice(0, 5)}–{s.end_time.slice(0, 5)}
                   </p>

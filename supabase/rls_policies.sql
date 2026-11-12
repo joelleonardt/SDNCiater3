@@ -19,10 +19,49 @@
 -- =============================================================================
 
 -- ---------------------------------------------------------------------------
--- Helper: subquery yang mengembalikan school_id user yang sedang login
+-- Helper SECURITY DEFINER functions (mencegah infinite recursion pada RLS
+-- tabel profiles serta mutual recursion antara classes dan schedules)
 -- ---------------------------------------------------------------------------
--- Dipakai berulang di banyak policy sebagai:
---   (SELECT school_id FROM profiles WHERE id = auth.uid())
+CREATE OR REPLACE FUNCTION public.get_my_school_id()
+RETURNS uuid
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT school_id FROM public.profiles WHERE id = (SELECT auth.uid());
+$$;
+
+CREATE OR REPLACE FUNCTION public.get_my_role()
+RETURNS text
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT role FROM public.profiles WHERE id = (SELECT auth.uid());
+$$;
+
+CREATE OR REPLACE FUNCTION public.is_guru_of_class(p_class_id uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM public.classes c
+    WHERE c.id = p_class_id
+      AND (
+        c.homeroom_teacher_id = (SELECT auth.uid())
+        OR EXISTS (
+          SELECT 1 FROM public.schedules s
+          WHERE s.class_id = c.id
+            AND s.teacher_id = (SELECT auth.uid())
+        )
+      )
+  );
+$$;
 
 
 -- =============================================================================
@@ -35,49 +74,42 @@
 CREATE POLICY "guru_schools_select" ON schools
   FOR SELECT
   USING (
-    id = (SELECT school_id FROM profiles WHERE id = auth.uid()
-          AND role = 'Guru')
+    id = public.get_my_school_id() AND public.get_my_role() = 'Guru'
   );
 
 -- Kepala_Sekolah: SELECT sekolah miliknya
 CREATE POLICY "kepsek_schools_select" ON schools
   FOR SELECT
   USING (
-    id = (SELECT school_id FROM profiles WHERE id = auth.uid()
-          AND role = 'Kepala_Sekolah')
+    id = public.get_my_school_id() AND public.get_my_role() = 'Kepala_Sekolah'
   );
 
 -- Staf_Admin: full access ke sekolah miliknya
 CREATE POLICY "admin_schools_select" ON schools
   FOR SELECT
   USING (
-    id = (SELECT school_id FROM profiles WHERE id = auth.uid()
-          AND role = 'Staf_Admin')
+    id = public.get_my_school_id() AND public.get_my_role() = 'Staf_Admin'
   );
 
 CREATE POLICY "admin_schools_insert" ON schools
   FOR INSERT
   WITH CHECK (
-    id = (SELECT school_id FROM profiles WHERE id = auth.uid()
-          AND role = 'Staf_Admin')
+    id = public.get_my_school_id() AND public.get_my_role() = 'Staf_Admin'
   );
 
 CREATE POLICY "admin_schools_update" ON schools
   FOR UPDATE
   USING (
-    id = (SELECT school_id FROM profiles WHERE id = auth.uid()
-          AND role = 'Staf_Admin')
+    id = public.get_my_school_id() AND public.get_my_role() = 'Staf_Admin'
   )
   WITH CHECK (
-    id = (SELECT school_id FROM profiles WHERE id = auth.uid()
-          AND role = 'Staf_Admin')
+    id = public.get_my_school_id() AND public.get_my_role() = 'Staf_Admin'
   );
 
 CREATE POLICY "admin_schools_delete" ON schools
   FOR DELETE
   USING (
-    id = (SELECT school_id FROM profiles WHERE id = auth.uid()
-          AND role = 'Staf_Admin')
+    id = public.get_my_school_id() AND public.get_my_role() = 'Staf_Admin'
   );
 
 
@@ -90,55 +122,49 @@ CREATE POLICY "admin_schools_delete" ON schools
 CREATE POLICY "guru_profiles_select" ON profiles
   FOR SELECT
   USING (
-    school_id = (SELECT school_id FROM profiles WHERE id = auth.uid()
-                 AND role = 'Guru')
+    id = (SELECT auth.uid())
+    OR (school_id = public.get_my_school_id() AND public.get_my_role() = 'Guru')
   );
 
 -- Guru: UPDATE hanya profil diri sendiri
 CREATE POLICY "guru_profiles_update_self" ON profiles
   FOR UPDATE
-  USING (id = auth.uid())
-  WITH CHECK (id = auth.uid());
+  USING (id = (SELECT auth.uid()))
+  WITH CHECK (id = (SELECT auth.uid()));
 
 -- Kepala_Sekolah: SELECT semua profil di sekolahnya
 CREATE POLICY "kepsek_profiles_select" ON profiles
   FOR SELECT
   USING (
-    school_id = (SELECT school_id FROM profiles WHERE id = auth.uid()
-                 AND role = 'Kepala_Sekolah')
+    school_id = public.get_my_school_id() AND public.get_my_role() = 'Kepala_Sekolah'
   );
 
 -- Staf_Admin: full access ke profil di sekolahnya
 CREATE POLICY "admin_profiles_select" ON profiles
   FOR SELECT
   USING (
-    school_id = (SELECT school_id FROM profiles WHERE id = auth.uid()
-                 AND role = 'Staf_Admin')
+    school_id = public.get_my_school_id() AND public.get_my_role() = 'Staf_Admin'
   );
 
 CREATE POLICY "admin_profiles_insert" ON profiles
   FOR INSERT
   WITH CHECK (
-    school_id = (SELECT school_id FROM profiles WHERE id = auth.uid()
-                 AND role = 'Staf_Admin')
+    school_id = public.get_my_school_id() AND public.get_my_role() = 'Staf_Admin'
   );
 
 CREATE POLICY "admin_profiles_update" ON profiles
   FOR UPDATE
   USING (
-    school_id = (SELECT school_id FROM profiles WHERE id = auth.uid()
-                 AND role = 'Staf_Admin')
+    school_id = public.get_my_school_id() AND public.get_my_role() = 'Staf_Admin'
   )
   WITH CHECK (
-    school_id = (SELECT school_id FROM profiles WHERE id = auth.uid()
-                 AND role = 'Staf_Admin')
+    school_id = public.get_my_school_id() AND public.get_my_role() = 'Staf_Admin'
   );
 
 CREATE POLICY "admin_profiles_delete" ON profiles
   FOR DELETE
   USING (
-    school_id = (SELECT school_id FROM profiles WHERE id = auth.uid()
-                 AND role = 'Staf_Admin')
+    school_id = public.get_my_school_id() AND public.get_my_role() = 'Staf_Admin'
   );
 
 
@@ -283,10 +309,7 @@ CREATE POLICY "admin_semesters_delete" ON semesters
 -- Guru: full access ke kelas yang diajarnya
 CREATE POLICY "guru_classes_all" ON classes
   USING (
-    homeroom_teacher_id = auth.uid()
-    OR id IN (
-      SELECT class_id FROM schedules WHERE teacher_id = auth.uid()
-    )
+    public.is_guru_of_class(id)
   );
 
 -- Kepala_Sekolah: SELECT semua kelas di sekolahnya
@@ -541,14 +564,12 @@ CREATE POLICY "admin_attendance_delete" ON attendance
 -- 9. schedules
 -- =============================================================================
 
--- Guru: full access ke jadwal di kelas yang diajarnya
---       (termasuk jadwal guru lain di kelas yang sama agar tampil di UI)
-CREATE POLICY "guru_schedules_all" ON schedules
+-- Guru: SELECT jadwal mengajar mereka sendiri atau jadwal di kelas yang mereka ajar
+CREATE POLICY "guru_schedules_select" ON schedules
+  FOR SELECT
   USING (
-    teacher_id = auth.uid()
-    OR class_id IN (
-      SELECT id FROM classes WHERE homeroom_teacher_id = auth.uid()
-    )
+    teacher_id = (SELECT auth.uid())
+    OR public.is_guru_of_class(class_id)
   );
 
 -- Kepala_Sekolah: SELECT semua jadwal di sekolahnya
@@ -693,8 +714,9 @@ CREATE POLICY "admin_notes_delete" ON notes
 -- 11. grade_components
 -- =============================================================================
 
--- Guru: full access ke komponen nilai di kelas yang diajarnya
-CREATE POLICY "guru_grade_components_all" ON grade_components
+-- Guru: SELECT komponen nilai di kelas yang diajarnya (Req 10.1)
+CREATE POLICY "guru_grade_components_select" ON grade_components
+  FOR SELECT
   USING (
     class_id IN (
       SELECT id FROM classes

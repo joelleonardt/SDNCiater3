@@ -27,7 +27,7 @@ export function formatDate(date: Date | string): string {
 /**
  * Alias of formatDate, intended for use in printed reports.
  */
-export function formatReportDate(date: Date): string {
+export function formatReportDate(date: Date | string): string {
   return formatDate(date)
 }
 
@@ -51,10 +51,16 @@ export function parseReportDate(str: string): Date {
 }
 
 /**
- * Format a number with dot as thousands separator.
+ * Format a number with Indonesian locale (dot as thousands separator, comma as decimal separator).
  * Example: 1000 → "1.000", 1500000 → "1.500.000"
  */
-export function formatNumber(n: number): string {
+export function formatNumber(n: number, maxDecimals?: number): string {
+  if (maxDecimals !== undefined) {
+    return n.toLocaleString('id-ID', {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: maxDecimals,
+    })
+  }
   return n.toLocaleString('id-ID')
 }
 
@@ -76,4 +82,25 @@ export function calculateAttendancePercentage(
 ): number {
   if (total === 0) return 0
   return Math.round((hadir / total) * 1000) / 10
+}
+
+/**
+ * Convert numeric final score (0–100) to letter grade based on school's grade_scales.
+ * Returns 'N/A' if scales are empty or no matching range is found (Req 10.6, 10.7).
+ */
+export function scoreToLetter(
+  score: number,
+  scales: Array<{ min_score: number; max_score: number; letter: string }>,
+): string {
+  if (!scales || scales.length === 0) return 'N/A'
+  const rounded = Math.round(score)
+  for (const s of scales) {
+    if (
+      (score >= s.min_score && score <= s.max_score) ||
+      (rounded >= s.min_score && rounded <= s.max_score)
+    ) {
+      return s.letter
+    }
+  }
+  return 'N/A'
 }

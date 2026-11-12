@@ -1,38 +1,17 @@
 import { useEffect, useState } from 'react'
-import { supabase } from '@/services/supabase'
+import { getWeeklyAttendanceData, type WeeklyAttendanceDay } from '@/services/dashboardService'
 import { useAuthStore } from '@/stores/authStore'
 import EmptyState from '@/components/ui/EmptyState'
 import { BarChart2 } from 'lucide-react'
 
-// Label hari Bahasa Indonesia — Senin = index 0
-const HARI = ['Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab', 'Min']
-
-interface HariData {
-  label: string   // "Sen", "Sel", dst.
-  tanggal: string // "YYYY-MM-DD"
-  persen: number  // 0-100
-  total: number   // jumlah catatan hari itu
-}
-
-/** Hasilkan array 7 hari terakhir (hari ini inklusif), ISO date string */
-function tujuhHariTerakhir(): string[] {
-  const hasil: string[] = []
-  for (let i = 6; i >= 0; i--) {
-    const d = new Date()
-    d.setDate(d.getDate() - i)
-    hasil.push(d.toISOString().slice(0, 10))
-  }
-  return hasil
-}
-
 /**
- * Chart kehadiran 7 hari terakhir untuk Dashboard.
+ * Chart kehadiran minggu berjalan (Senin–Minggu) untuk Dashboard.
  *
- * Requirements: 5.5, 5.6
+ * Requirements: 4.4
  */
 export default function WeeklyAttendanceChart() {
   const profile = useAuthStore((s) => s.profile)
-  const [data, setData] = useState<HariData[]>([])
+  const [data, setData] = useState<WeeklyAttendanceDay[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -40,55 +19,12 @@ export default function WeeklyAttendanceChart() {
     if (!profile?.school_id) return
 
     const schoolId = profile.school_id
-    const tanggalList = tujuhHariTerakhir()
-    const dari = tanggalList[0]
-    const sampai = tanggalList[tanggalList.length - 1]
 
     async function ambilData() {
       setLoading(true)
       setError(null)
       try {
-        // Ambil semua catatan attendance 7 hari terakhir untuk school ini
-        // (join via class_id → classes.school_id)
-        // shortcut: tipe result di-cast manual karena Supabase TS tidak resolve !inner join, upgrade saat generate types diperbarui
-        const { data: rows, error: err } = await supabase
-          .from('attendance')
-          .select('date, status, class_id, classes!inner(school_id)')
-          .eq('classes.school_id', schoolId)
-          .gte('date', dari)
-          .lte('date', sampai) as unknown as {
-            data: Array<{ date: string; status: string }> | null
-            error: Error | null
-          }
-
-        if (err) throw err
-
-        // Kelompokkan per tanggal
-        const perTanggal: Record<string, { hadir: number; total: number }> = {}
-        tanggalList.forEach((t) => {
-          perTanggal[t] = { hadir: 0, total: 0 }
-        })
-
-        for (const row of rows ?? []) {
-          if (perTanggal[row.date]) {
-            perTanggal[row.date].total++
-            if (row.status === 'Hadir') perTanggal[row.date].hadir++
-          }
-        }
-
-        const result: HariData[] = tanggalList.map((tanggal) => {
-          const { hadir, total } = perTanggal[tanggal]
-          const dayIndex = new Date(tanggal + 'T00:00:00').getDay() // 0=Min
-          // Konversi: getDay() 0=Min,1=Sen,...,6=Sab → HARI array 0=Sen..6=Min
-          const labelIndex = dayIndex === 0 ? 6 : dayIndex - 1
-          return {
-            label: HARI[labelIndex],
-            tanggal,
-            persen: total > 0 ? Math.round((hadir / total) * 100) : 0,
-            total,
-          }
-        })
-
+        const result = await getWeeklyAttendanceData(schoolId)
         setData(result)
       } catch (e) {
         setError('Gagal memuat data kehadiran.')

@@ -42,6 +42,7 @@ CREATE TABLE profiles (
   id          uuid PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
   school_id   uuid REFERENCES schools(id),
   full_name   text NOT NULL CHECK (char_length(full_name) BETWEEN 1 AND 100),
+  email       text CHECK (char_length(email) <= 254),
   role        text NOT NULL CHECK (role IN ('Guru','Kepala_Sekolah','Staf_Admin')),
   avatar_url  text,
   is_active   boolean NOT NULL DEFAULT true,
@@ -52,6 +53,7 @@ ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
 
 -- Index
 CREATE INDEX idx_profiles_school_id ON profiles (school_id);
+CREATE INDEX idx_profiles_email     ON profiles (email);
 CREATE INDEX idx_profiles_role      ON profiles (role);
 CREATE INDEX idx_profiles_is_active ON profiles (is_active);
 
@@ -177,7 +179,7 @@ CREATE TABLE attendance (
   class_id   uuid NOT NULL REFERENCES classes(id),
   student_id uuid NOT NULL REFERENCES students(id),
   date       date NOT NULL,
-  status     text NOT NULL CHECK (status IN ('Hadir','Sakit','Izin','Alpa')),
+  status     text NOT NULL CHECK (status IN ('Hadir','Sakit','Izin','Alpa','Alfa')),
   created_at timestamptz NOT NULL DEFAULT now(),
   UNIQUE (class_id, student_id, date)
 );
@@ -305,3 +307,36 @@ ALTER TABLE grade_scales ENABLE ROW LEVEL SECURITY;
 
 -- Index
 CREATE INDEX idx_grade_scales_school_id ON grade_scales (school_id);
+
+
+-- ---------------------------------------------------------------------------
+-- 14. Trigger Otomatis Profil Pengguna Baru (auth.users -> profiles)
+--     Memudahkan pembuatan akun langsung via UI / Supabase Auth.
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  INSERT INTO public.profiles (id, school_id, full_name, email, role, is_active)
+  VALUES (
+    new.id,
+    (new.raw_user_meta_data->>'school_id')::uuid,
+    COALESCE(new.raw_user_meta_data->>'full_name', new.email),
+    new.email,
+    COALESCE(new.raw_user_meta_data->>'role', 'Guru'),
+    true
+  )
+  ON CONFLICT (id) DO UPDATE SET
+    email = EXCLUDED.email,
+    full_name = EXCLUDED.full_name;
+  RETURN new;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+CREATE TRIGGER on_auth_user_created
+  AFTER INSERT ON auth.users
+  FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();

@@ -64,6 +64,17 @@ export default function AttendancePage() {
   const selectedClass = classes.find((c) => c.id === selectedClassId)
   const formReady = !!selectedClassId && !!selectedDate
 
+  // Validasi rentang tanggal rekap (1–31 hari, Req 7.8)
+  const recapRangeError = React.useMemo(() => {
+    if (!recapStart || !recapEnd) return 'Pilih tanggal mulai dan tanggal akhir.'
+    if (recapStart > recapEnd) return 'Tanggal mulai tidak boleh melebihi tanggal akhir.'
+    const startMs = new Date(recapStart + 'T00:00:00').getTime()
+    const endMs = new Date(recapEnd + 'T00:00:00').getTime()
+    const diffDays = Math.floor((endMs - startMs) / (1000 * 60 * 60 * 24)) + 1
+    if (diffDays > 31) return 'Rentang tanggal rekap maksimal 31 hari.'
+    return null
+  }, [recapStart, recapEnd])
+
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="space-y-6 p-6">
@@ -184,7 +195,20 @@ export default function AttendancePage() {
         />
       ) : activeTab === 'input' ? (
         // Pasang key supaya form di-remount saat kelas/tanggal berubah (Req 7.1)
-        <AttendanceForm key={`${selectedClassId}-${selectedDate}`} classId={selectedClassId} date={selectedDate} />
+        // Kepala_Sekolah hanya read-only (Req 1.5)
+        <AttendanceForm
+          key={`${selectedClassId}-${selectedDate}`}
+          classId={selectedClassId}
+          date={selectedDate}
+          readOnly={profile?.role === 'Kepala_Sekolah'}
+        />
+      ) : recapRangeError ? (
+        <div
+          role="alert"
+          className="rounded-md border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive"
+        >
+          {recapRangeError}
+        </div>
       ) : (
         <AttendanceRecap
           key={`${selectedClassId}-${recapStart}-${recapEnd}`}

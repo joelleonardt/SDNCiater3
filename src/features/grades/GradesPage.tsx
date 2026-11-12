@@ -1,24 +1,20 @@
 import * as React from 'react'
 import { useAuthStore } from '@/stores/authStore'
 import { useAppStore } from '@/stores/appStore'
-import { supabase } from '@/services/supabase'
 import { useToast } from '@/components/ui/Toast/useToast'
-
-// shortcut: semesters not in typed client — cast to any like gradeService/classService
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const db = supabase as any
 import { getClasses } from '@/services/classService'
+import { getSemestersByAcademicYear, getGradeScales } from '@/services/settingsService'
 import { useGrades } from './useGrades'
 import PageHeader from '@/components/ui/PageHeader'
 import { Label } from '@/components/ui/label'
 import GradeComponentsConfig from './GradeComponentsConfig'
 import GradeInputTable from './GradeInputTable'
-import type { Class, Semester } from '@/types/database.types'
+import type { Class, Semester, GradeScale } from '@/types/database.types'
 
 /**
  * Halaman pengelolaan nilai: pilih kelas + semester,
  * lalu konfigurasi komponen nilai dan input nilai siswa.
- * Requirements: 18.2
+ * Requirements: 10.1–10.9
  */
 export default function GradesPage() {
   const profile = useAuthStore((s) => s.profile)
@@ -28,10 +24,18 @@ export default function GradesPage() {
   // ── Pilihan kelas & semester ───────────────────────────────────────────────
   const [classes, setClasses] = React.useState<Class[]>([])
   const [semesters, setSemesters] = React.useState<Semester[]>([])
+  const [gradeScales, setGradeScales] = React.useState<GradeScale[]>([])
   const [classId, setClassId] = React.useState('')
   const [semesterId, setSemesterId] = React.useState('')
 
-  // Muat kelas saat tahun ajaran aktif berubah
+  // Muat kelas & skala nilai saat sekolah / tahun ajaran aktif berubah
+  React.useEffect(() => {
+    if (!profile?.school_id) return
+    getGradeScales(profile.school_id)
+      .then(setGradeScales)
+      .catch(() => {})
+  }, [profile?.school_id])
+
   React.useEffect(() => {
     if (!profile?.school_id || !activeAcademicYear?.id) {
       setClasses([])
@@ -40,7 +44,7 @@ export default function GradesPage() {
     getClasses(profile.school_id, activeAcademicYear.id)
       .then(setClasses)
       .catch(() => toastError('Gagal memuat daftar kelas'))
-  }, [profile?.school_id, activeAcademicYear?.id])
+  }, [profile?.school_id, activeAcademicYear?.id, toastError])
 
   // Muat semester saat tahun ajaran aktif berubah
   React.useEffect(() => {
@@ -49,20 +53,22 @@ export default function GradesPage() {
       setSemesterId('')
       return
     }
-    db.from('semesters')
-      .select('*')
-      .eq('academic_year_id', activeAcademicYear.id)
-      .then(({ data }: { data: Semester[] | null }) => {
-        const list = data ?? []
+    getSemestersByAcademicYear(activeAcademicYear.id)
+      .then((list) => {
         setSemesters(list)
-        // Pilih semester pertama secara default
         if (list.length > 0 && !semesterId) setSemesterId(list[0].id)
       })
+      .catch(() => toastError('Gagal memuat daftar semester'))
   }, [activeAcademicYear?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Data nilai ────────────────────────────────────────────────────────────
   const { components, gradeRows, loading, saving, saveComponents, updateScore, saveAllGrades } =
     useGrades(classId, semesterId)
+
+  // Hanya Staf_Admin yang dapat mengonfigurasi komponen nilai (Req 10.1)
+  const canEditComponents = profile?.role === 'Staf_Admin'
+  // Guru dan Staf_Admin dapat menginput nilai siswa (Req 10.4)
+  const canInputGrades = profile?.role === 'Guru' || profile?.role === 'Staf_Admin'
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
@@ -124,6 +130,7 @@ export default function GradesPage() {
             semesterId={semesterId}
             components={components}
             saving={saving}
+            readOnly={!canEditComponents}
             onSave={saveComponents}
           />
 
@@ -133,8 +140,10 @@ export default function GradesPage() {
             <GradeInputTable
               components={components}
               gradeRows={gradeRows}
+              gradeScales={gradeScales}
               loading={loading}
               saving={saving}
+              readOnly={!canInputGrades}
               onUpdateScore={updateScore}
               onSave={saveAllGrades}
             />

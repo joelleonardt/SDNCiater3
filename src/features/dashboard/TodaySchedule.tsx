@@ -1,16 +1,8 @@
 import { useEffect, useState } from 'react'
 import { Clock } from 'lucide-react'
-import { supabase } from '@/services/supabase'
+import { getTodaySchedules, type TodayScheduleItem } from '@/services/dashboardService'
 import { useAuthStore } from '@/stores/authStore'
 import { cn } from '@/lib/utils'
-
-interface ScheduleItem {
-  id: string
-  subject: string
-  class_name: string
-  start_time: string
-  end_time: string
-}
 
 // Pemetaan getDay() (0=Minggu) ke day_of_week (1=Senin…6=Sabtu)
 function getTodayDayOfWeek(): number {
@@ -24,11 +16,11 @@ function formatTime(time: string): string {
 
 export default function TodaySchedule() {
   const profile = useAuthStore((s) => s.profile)
-  const [items, setItems] = useState<ScheduleItem[]>([])
+  const [items, setItems] = useState<TodayScheduleItem[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    if (!profile?.id) return
+    if (!profile?.id || !profile.school_id) return
 
     const dayOfWeek = getTodayDayOfWeek()
     if (dayOfWeek === 0) {
@@ -38,28 +30,14 @@ export default function TodaySchedule() {
       return
     }
 
-    supabase
-      .from('schedules')
-      .select('id, subject, start_time, end_time, classes(name)')
-      .eq('teacher_id', profile.id)
-      .eq('day_of_week', dayOfWeek)
-      .order('start_time')
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      .then(({ data, error }: { data: any[] | null; error: unknown }) => {
-        if (!error && data) {
-          setItems(
-            data.map((row) => ({
-              id: row.id,
-              subject: row.subject,
-              class_name: (row.classes as { name: string } | null)?.name ?? '—',
-              start_time: row.start_time,
-              end_time: row.end_time,
-            }))
-          )
-        }
+    getTodaySchedules(profile.school_id, profile.id, profile.role, dayOfWeek)
+      .then((data) => {
+        setItems(data)
+      })
+      .finally(() => {
         setLoading(false)
       })
-  }, [profile?.id])
+  }, [profile?.id, profile?.school_id, profile?.role])
 
   return (
     <div className="rounded-lg border bg-card p-4 shadow-sm">

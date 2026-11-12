@@ -6,7 +6,7 @@ import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import type { Class } from '@/types/database.types'
+import type { Class, Profile } from '@/types/database.types'
 
 // ─── Skema validasi ──────────────────────────────────────────────────────────
 
@@ -20,7 +20,7 @@ const kelasSchema = z.object({
     .int()
     .min(1, 'Tingkat minimal 1')
     .max(12, 'Tingkat maksimal 12'),
-  homeroom_teacher_name: z.string().max(100, 'Nama wali kelas terlalu panjang').optional(),
+  homeroom_teacher_id: z.string().optional(),
 })
 
 type KelasForm = z.infer<typeof kelasSchema>
@@ -29,7 +29,11 @@ type KelasForm = z.infer<typeof kelasSchema>
 
 export interface ClassFormModalProps {
   /** Data kelas untuk mode edit; undefined untuk tambah */
-  initialData?: Class & { homeroom_teacher_name?: string }
+  initialData?: Class & { homeroom_teacher_name?: string | null }
+  /** Daftar guru aktif untuk pilihan wali kelas */
+  teachers?: Profile[]
+  /** Pesan error dari server (misal nama kelas duplikat) */
+  serverError?: string | null
   /** Apakah form sedang disubmit */
   isSubmitting: boolean
   /** Dipanggil saat user klik Simpan dengan data yang valid */
@@ -40,12 +44,14 @@ export interface ClassFormModalProps {
 
 /**
  * Modal form tambah/edit kelas.
- * - Fields: nama kelas, tingkat kelas (select 1–12), wali kelas (text, opsional)
+ * - Fields: nama kelas, tingkat kelas (select 1–12), wali kelas (select dari akun Guru aktif)
  * - Validasi: nama max 50 karakter, tingkat 1–12
- * Requirements: 7.1, 7.2, 7.3
+ * Requirements: 5.1, 5.2, 5.3, 5.4
  */
 export default function ClassFormModal({
   initialData,
+  teachers = [],
+  serverError,
   isSubmitting,
   onSubmit,
   onCancel,
@@ -61,7 +67,7 @@ export default function ClassFormModal({
     defaultValues: {
       name: initialData?.name ?? '',
       grade_level: initialData?.grade_level ?? undefined,
-      homeroom_teacher_name: initialData?.homeroom_teacher_name ?? '',
+      homeroom_teacher_id: initialData?.homeroom_teacher_id ?? '',
     },
   })
 
@@ -110,6 +116,12 @@ export default function ClassFormModal({
         {/* Form */}
         <form onSubmit={handleSubmit(onSubmit)} noValidate>
           <div className="space-y-4 px-6 py-5">
+            {serverError && (
+              <p role="alert" className="rounded-md bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                {serverError}
+              </p>
+            )}
+
             {/* Nama Kelas */}
             <div className="space-y-1.5">
               <Label htmlFor="class-name">
@@ -163,20 +175,22 @@ export default function ClassFormModal({
             {/* Wali Kelas */}
             <div className="space-y-1.5">
               <Label htmlFor="homeroom-teacher">Wali Kelas</Label>
-              <Input
+              <select
                 id="homeroom-teacher"
-                placeholder="Nama wali kelas (opsional)"
-                aria-invalid={!!errors.homeroom_teacher_name}
-                aria-describedby={
-                  errors.homeroom_teacher_name ? 'homeroom-teacher-error' : undefined
-                }
-                {...register('homeroom_teacher_name')}
-              />
-              {errors.homeroom_teacher_name && (
-                <p id="homeroom-teacher-error" role="alert" className="text-xs text-destructive">
-                  {errors.homeroom_teacher_name.message}
-                </p>
-              )}
+                className={cn(
+                  'flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm',
+                  'ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
+                  'disabled:cursor-not-allowed disabled:opacity-50',
+                )}
+                {...register('homeroom_teacher_id')}
+              >
+                <option value="">-- Pilih wali kelas (opsional) --</option>
+                {teachers.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.full_name}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
 

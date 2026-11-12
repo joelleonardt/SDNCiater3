@@ -8,8 +8,8 @@ interface AppState {
   activeAcademicYear: AcademicYear | null
   activeSemester: Semester | null
   theme: Theme
-  setActiveAcademicYear: (ay: AcademicYear) => void
-  setActiveSemester: (semester: Semester) => void
+  setActiveAcademicYear: (ay: AcademicYear | null) => void
+  setActiveSemester: (semester: Semester | null) => void
   setTheme: (theme: Theme) => void
 }
 

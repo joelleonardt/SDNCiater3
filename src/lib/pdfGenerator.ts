@@ -4,17 +4,72 @@
  */
 
 const PRINT_STYLES = `
-  body { font-family: Arial, sans-serif; font-size: 12px; color: #000; margin: 20px; }
-  table { width: 100%; border-collapse: collapse; margin-top: 12px; }
-  th, td { border: 1px solid #333; padding: 6px 8px; text-align: left; }
-  th { background-color: #f0f0f0; font-weight: bold; }
-  h1 { font-size: 18px; margin-bottom: 4px; }
-  h2 { font-size: 14px; margin: 16px 0 4px; }
-  p { margin: 2px 0; }
-  .meta { color: #555; font-size: 11px; margin-bottom: 12px; }
+  @page {
+    size: A4 portrait;
+    margin: 15mm;
+  }
+  * {
+    box-sizing: border-box;
+  }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    font-size: 12px;
+    line-height: 1.5;
+    color: #111827;
+    margin: 0;
+    padding: 0;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .report-header {
+    border-bottom: 2px solid #111827;
+    padding-bottom: 12px;
+    margin-bottom: 16px;
+  }
+  h1 {
+    font-size: 18px;
+    font-weight: bold;
+    margin: 0 0 4px 0;
+  }
+  h2 {
+    font-size: 14px;
+    font-weight: 600;
+    margin: 16px 0 6px 0;
+  }
+  p {
+    margin: 3px 0;
+  }
+  .meta {
+    color: #4b5563;
+    font-size: 11px;
+    margin-bottom: 12px;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 12px;
+    page-break-inside: auto;
+  }
+  tr {
+    page-break-inside: avoid;
+    page-break-after: auto;
+  }
+  th, td {
+    border: 1px solid #d1d5db;
+    padding: 8px 10px;
+    text-align: left;
+    font-size: 11.5px;
+  }
+  th {
+    background-color: #f3f4f6 !important;
+    font-weight: 600;
+    color: #1f2937;
+  }
+  .text-center { text-align: center; }
+  .text-right { text-align: right; }
   @media print {
     body { margin: 0; }
-    button { display: none; }
+    button { display: none !important; }
   }
 `
 

@@ -1,10 +1,15 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { Profile } from '@/types/database.types'
-import { getUsers, updateUserRole, toggleUserActive } from '@/services/userService'
+import {
+  getUsers,
+  createUser,
+  updateUserRole,
+  toggleUserActive,
+  type Role,
+  type CreateUserInput,
+} from '@/services/userService'
 import { useAuthStore } from '@/stores/authStore'
 import { useToast } from '@/components/ui/Toast/useToast'
-
-type Role = 'Guru' | 'Kepala_Sekolah' | 'Staf_Admin'
 
 export function useUsers() {
   const [users, setUsers] = useState<Profile[]>([])
@@ -33,6 +38,23 @@ export function useUsers() {
   useEffect(() => {
     reload()
   }, [reload])
+
+  const addUser = useCallback(
+    async (payload: Omit<CreateUserInput, 'school_id'>) => {
+      if (!schoolId) throw new Error('Sekolah belum teridentifikasi')
+      try {
+        const created = await createUser({ ...payload, school_id: schoolId })
+        setUsers((prev) => [created, ...prev])
+        toastSuccess('Pengguna baru berhasil ditambahkan')
+        return created
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Gagal menambahkan pengguna'
+        toastError('Gagal menambahkan pengguna', msg)
+        throw err
+      }
+    },
+    [schoolId, toastSuccess, toastError]
+  )
 
   const updateRole = useCallback(
     async (userId: string, role: Role) => {
@@ -68,5 +90,5 @@ export function useUsers() {
     [toastSuccess, toastError]
   )
 
-  return { users, loading, error, reload, updateRole, toggleActive }
+  return { users, loading, error, reload, addUser, updateRole, toggleActive }
 }

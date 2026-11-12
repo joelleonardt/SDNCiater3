@@ -7,30 +7,34 @@ import {
   createSchedule as apiCreate,
   updateSchedule as apiUpdate,
   deleteSchedule as apiDelete,
+  type ScheduleWithDetails,
 } from '@/services/scheduleService'
-import type { Schedule, ScheduleInsert, ScheduleUpdate } from '@/types/database.types'
+import type { ScheduleInsert, ScheduleUpdate } from '@/types/database.types'
 
 /**
  * Hook untuk mengelola jadwal pelajaran.
- * - Jika classId diberikan: ambil jadwal kelas tersebut (Req 10.1)
- * - Jika tidak: ambil jadwal milik guru yang sedang login (Req 10.2)
+ * - Jika classId diberikan: ambil jadwal kelas tersebut (Req 8.1, 8.2)
+ * - Jika teacherId diberikan: ambil jadwal guru tersebut (Req 8.1, 8.2)
+ * - Jika tidak ada: ambil jadwal milik guru yang sedang login
  */
-export function useSchedules(classId?: string) {
+export function useSchedules(classId?: string, teacherId?: string) {
   const profile = useAuthStore((s) => s.profile)
   const { toastSuccess, toastError } = useToast()
 
-  const [schedules, setSchedules] = useState<Schedule[]>([])
+  const [schedules, setSchedules] = useState<ScheduleWithDetails[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const reload = useCallback(async () => {
-    if (!classId && !profile?.id) return
+    const targetTeacherId = teacherId || (!classId ? profile?.id : undefined)
+    if (!classId && !targetTeacherId) return
+
     setLoading(true)
     setError(null)
     try {
       const data = classId
         ? await getSchedulesByClass(classId)
-        : await getSchedulesByTeacher(profile!.id)
+        : await getSchedulesByTeacher(targetTeacherId!)
       setSchedules(data)
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Gagal memuat jadwal'
@@ -39,7 +43,7 @@ export function useSchedules(classId?: string) {
     } finally {
       setLoading(false)
     }
-  }, [classId, profile?.id, toastError])
+  }, [classId, teacherId, profile?.id, toastError])
 
   useEffect(() => {
     reload()

@@ -15,6 +15,7 @@ interface Props {
   semesterId: string
   components: GradeComponent[]
   saving: boolean
+  readOnly?: boolean
   onSave: (components: { name: string; weight: number }[]) => void
 }
 
@@ -23,9 +24,10 @@ interface Props {
 const componentSchema = z.object({
   components: z.array(
     z.object({
-      name: z.string().min(1, 'Nama komponen wajib diisi').max(50, 'Maksimal 50 karakter'),
+      name: z.string().min(1, 'Nama komponen wajib diisi').max(100, 'Maksimal 100 karakter'),
       weight: z.coerce
         .number({ invalid_type_error: 'Bobot wajib diisi' })
+        .int('Bobot harus bilangan bulat')
         .min(1, 'Minimal 1')
         .max(100, 'Maksimal 100'),
     }),
@@ -36,11 +38,12 @@ type FormValues = z.infer<typeof componentSchema>
 
 /**
  * Konfigurasi komponen nilai: daftar nama + bobot yang bisa ditambah/hapus.
- * Requirements: 18.2
+ * Requirements: 10.1, 10.2
  */
 export default function GradeComponentsConfig({
   components,
   saving,
+  readOnly = false,
   onSave,
 }: Props) {
   const { register, control, handleSubmit, watch, reset, formState: { errors } } = useForm<FormValues>({
@@ -89,6 +92,7 @@ export default function GradeComponentsConfig({
               <Input
                 id={`comp-name-${index}`}
                 placeholder="Contoh: UTS"
+                disabled={readOnly}
                 aria-invalid={Boolean(errors.components?.[index]?.name)}
                 aria-describedby={errors.components?.[index]?.name ? `comp-name-${index}-error` : undefined}
                 {...register(`components.${index}.name`)}
@@ -108,6 +112,7 @@ export default function GradeComponentsConfig({
                 type="number"
                 min={0}
                 max={100}
+                disabled={readOnly}
                 placeholder="0"
                 aria-invalid={Boolean(errors.components?.[index]?.weight)}
                 aria-describedby={errors.components?.[index]?.weight ? `comp-weight-${index}-error` : undefined}
@@ -119,16 +124,18 @@ export default function GradeComponentsConfig({
                 </p>
               )}
             </div>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              aria-label={`Hapus komponen ${index + 1}`}
-              onClick={() => remove(index)}
-              className="w-8 h-8 mt-1 shrink-0 text-destructive hover:text-destructive"
-            >
-              <Trash2 className="h-4 w-4" aria-hidden="true" />
-            </Button>
+            {!readOnly && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                aria-label={`Hapus komponen ${index + 1}`}
+                onClick={() => remove(index)}
+                className="w-8 h-8 mt-1 shrink-0 text-destructive hover:text-destructive"
+              >
+                <Trash2 className="h-4 w-4" aria-hidden="true" />
+              </Button>
+            )}
           </div>
         ))}
 
@@ -141,28 +148,30 @@ export default function GradeComponentsConfig({
         )}
 
         {/* Tombol aksi */}
-        <div className="flex flex-wrap gap-2 pt-1">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => append({ name: '', weight: 0 })}
-          >
-            <Plus className="mr-1.5 h-4 w-4" aria-hidden="true" />
-            Tambah Komponen
-          </Button>
-          {fields.length > 0 && (
+        {!readOnly && (
+          <div className="flex flex-wrap gap-2 pt-1">
             <Button
-              type="submit"
+              type="button"
+              variant="outline"
               size="sm"
-              disabled={saving || !weightOk}
-              aria-busy={saving}
+              onClick={() => append({ name: '', weight: 0 })}
             >
-              {saving && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" aria-hidden="true" />}
-              {saving ? 'Menyimpan…' : 'Simpan Komponen'}
+              <Plus className="mr-1.5 h-4 w-4" aria-hidden="true" />
+              Tambah Komponen
             </Button>
-          )}
-        </div>
+            {fields.length > 0 && (
+              <Button
+                type="submit"
+                size="sm"
+                disabled={saving || !weightOk}
+                aria-busy={saving}
+              >
+                {saving && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" aria-hidden="true" />}
+                {saving ? 'Menyimpan…' : 'Simpan Komponen'}
+              </Button>
+            )}
+          </div>
+        )}
       </form>
     </section>
   )

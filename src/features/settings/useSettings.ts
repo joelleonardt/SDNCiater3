@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { Profile, School, AcademicYear, GradeScale } from '@/types/database.types'
 import { useAuthStore } from '@/stores/authStore'
+import { useAppStore } from '@/stores/appStore'
 import { useToast } from '@/components/ui/Toast/useToast'
 import {
   updateProfile as svcUpdateProfile,
+  uploadAvatar as svcUploadAvatar,
   updatePassword as svcUpdatePassword,
   getSchool,
   updateSchool as svcUpdateSchool,
@@ -18,6 +20,8 @@ export function useSettings() {
   const storeProfile = useAuthStore((s) => s.profile)
   const setSession = useAuthStore((s) => s.setSession)
   const session = useAuthStore((s) => s.session)
+  const setStoreActiveAcademicYear = useAppStore((s) => s.setActiveAcademicYear)
+  const setStoreActiveSemester = useAppStore((s) => s.setActiveSemester)
   const { toastSuccess, toastError } = useToast()
 
   const schoolId = storeProfile?.school_id ?? null
@@ -75,6 +79,25 @@ export function useSettings() {
     [userId, session, setSession, toastSuccess, toastError]
   )
 
+  const uploadAvatar = useCallback(
+    async (file: File): Promise<string> => {
+      if (!userId) throw new Error('Pengguna belum terautentikasi')
+      try {
+        const publicUrl = await svcUploadAvatar(userId, file)
+        const updated = await svcUpdateProfile(userId, { avatar_url: publicUrl })
+        setProfile(updated)
+        if (session) setSession(session, updated)
+        toastSuccess('Foto profil berhasil diperbarui')
+        return publicUrl
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Gagal mengunggah foto profil'
+        toastError('Gagal mengunggah foto profil', msg)
+        throw err
+      }
+    },
+    [userId, session, setSession, toastSuccess, toastError]
+  )
+
   const updatePassword = useCallback(
     async (newPassword: string) => {
       try {
@@ -94,6 +117,11 @@ export function useSettings() {
   const updateSchool = useCallback(
     async (data: { name?: string; address?: string; principal_name?: string }) => {
       if (!schoolId) return
+      if (storeProfile?.role !== 'Staf_Admin') {
+        const msg = 'Hanya Staf Admin yang dapat mengubah informasi sekolah'
+        toastError('Akses ditolak', msg)
+        throw new Error(msg)
+      }
       try {
         const updated = await svcUpdateSchool(schoolId, data)
         setSchool(updated)
@@ -104,7 +132,7 @@ export function useSettings() {
         throw err
       }
     },
-    [schoolId, toastSuccess, toastError]
+    [schoolId, storeProfile?.role, toastSuccess, toastError]
   )
 
   // ─── Academic Years ────────────────────────────────────────────────────────
@@ -112,6 +140,11 @@ export function useSettings() {
   const createAcademicYear = useCallback(
     async (name: string) => {
       if (!schoolId) return
+      if (storeProfile?.role !== 'Staf_Admin') {
+        const msg = 'Hanya Staf Admin yang dapat menambah tahun ajaran'
+        toastError('Akses ditolak', msg)
+        throw new Error(msg)
+      }
       try {
         const created = await svcCreateAcademicYear({ school_id: schoolId, name })
         setAcademicYears((prev) =>
@@ -124,25 +157,32 @@ export function useSettings() {
         throw err
       }
     },
-    [schoolId, toastSuccess, toastError]
+    [schoolId, storeProfile?.role, toastSuccess, toastError]
   )
 
   const setActiveAcademicYear = useCallback(
     async (academicYearId: string) => {
       if (!schoolId) return
+      if (storeProfile?.role !== 'Staf_Admin') {
+        const msg = 'Hanya Staf Admin yang dapat mengaktifkan tahun ajaran'
+        toastError('Akses ditolak', msg)
+        throw new Error(msg)
+      }
       try {
-        await svcSetActiveAcademicYear(schoolId, academicYearId)
+        const { academicYear, semesters } = await svcSetActiveAcademicYear(schoolId, academicYearId)
         setAcademicYears((prev) =>
           prev.map((y) => ({ ...y, is_active: y.id === academicYearId }))
         )
-        toastSuccess('Tahun ajaran aktif berhasil diubah')
+        setStoreActiveAcademicYear(academicYear)
+        setStoreActiveSemester(semesters[0] ?? null)
+        toastSuccess('Tahun ajaran aktif berhasil diubah (Semester Ganjil & Genap siap)')
       } catch (err) {
         const msg = err instanceof Error ? err.message : 'Gagal mengubah tahun ajaran aktif'
         toastError('Gagal mengubah tahun ajaran aktif', msg)
         throw err
       }
     },
-    [schoolId, toastSuccess, toastError]
+    [schoolId, storeProfile?.role, setStoreActiveAcademicYear, setStoreActiveSemester, toastSuccess, toastError]
   )
 
   // ─── Grade Scales ──────────────────────────────────────────────────────────
@@ -150,6 +190,11 @@ export function useSettings() {
   const saveGradeScales = useCallback(
     async (scales: { min_score: number; max_score: number; letter: string }[]) => {
       if (!schoolId) return
+      if (storeProfile?.role !== 'Staf_Admin') {
+        const msg = 'Hanya Staf Admin yang dapat mengubah skala nilai'
+        toastError('Akses ditolak', msg)
+        throw new Error(msg)
+      }
       try {
         await svcSaveGradeScales(schoolId, scales)
         // Muat ulang agar id dari database ikut terisi
@@ -162,7 +207,7 @@ export function useSettings() {
         throw err
       }
     },
-    [schoolId, toastSuccess, toastError]
+    [schoolId, storeProfile?.role, toastSuccess, toastError]
   )
 
   return {
@@ -172,6 +217,7 @@ export function useSettings() {
     gradeScales,
     loading,
     updateProfile,
+    uploadAvatar,
     updatePassword,
     updateSchool,
     createAcademicYear,

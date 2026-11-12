@@ -5,18 +5,30 @@ import { supabase } from './supabase'
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const db = supabase as any
 
+export type NoteWithAuthor = Note & { author_name?: string | null }
+
 /**
- * Ambil semua catatan untuk satu siswa, diurutkan dari terbaru.
+ * Ambil semua catatan untuk satu siswa, diurutkan dari terbaru (Req 9.2).
  */
-export async function getNotesByStudent(studentId: string): Promise<Note[]> {
-  const { data, error } = await supabase
+export async function getNotesByStudent(studentId: string): Promise<NoteWithAuthor[]> {
+  const { data, error } = await db
     .from('notes')
-    .select('*')
+    .select('*, profiles(full_name)')
     .eq('student_id', studentId)
     .order('note_date', { ascending: false })
 
   if (error) throw new Error(error.message)
-  return data ?? []
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return ((data ?? []) as any[]).map((row) => ({
+    id: row.id,
+    student_id: row.student_id,
+    author_id: row.author_id,
+    category: row.category,
+    content: row.content,
+    note_date: row.note_date,
+    created_at: row.created_at,
+    author_name: row.profiles?.full_name ?? null,
+  }))
 }
 
 /**

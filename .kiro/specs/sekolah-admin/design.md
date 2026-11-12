@@ -599,9 +599,9 @@ function getLetterGrade(score: number, scales: GradeScale[]): string | null {
 }
 ```
 
-### Struktur Laporan PDF
+### Struktur Laporan PDF & Grafik
 
-PDF dihasilkan menggunakan `jsPDF` + `jspdf-autotable`:
+Pencetakan laporan PDF menggunakan pendekatan native browser (`window.print()`) melalui `src/lib/pdfGenerator.ts` dengan styling `@page { size: A4 portrait; margin: 15mm; }`. Pendekatan ini dipilih karena paling efektif: bebas dependensi eksternal besar (`jsPDF`), menghasilkan tipografi vektor tajam, dan secara otomatis kompatibel dengan dialog cetak/PDF semua browser modern. Demikian pula grafik kehadiran mingguan di dashboard diimplementasikan secara elegan menggunakan native CSS Bar Chart berbasis Tailwind CSS tanpa membebani bundle dengan library berat seperti `recharts`.
 
 ```ts
 // Attendance Report

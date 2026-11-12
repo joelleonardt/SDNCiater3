@@ -1,13 +1,13 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import type { Student } from '@/types/database.types'
 import {
   getStudents,
   softDeleteStudent,
   type StudentFilters,
+  type StudentWithClass,
 } from '@/services/studentService'
 
 interface UseStudentsState {
-  data: Student[]
+  data: StudentWithClass[]
   totalCount: number
   isLoading: boolean
   error: string | null
@@ -30,7 +30,7 @@ interface UseStudentsReturn extends UseStudentsState {
  * Requirements: 6.1, 6.2, 6.3, 6.7
  */
 export function useStudents(): UseStudentsReturn {
-  const [data, setData] = useState<Student[]>([])
+  const [data, setData] = useState<StudentWithClass[]>([])
   const [totalCount, setTotalCount] = useState(0)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)

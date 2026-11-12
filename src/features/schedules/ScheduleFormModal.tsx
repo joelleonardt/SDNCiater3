@@ -6,7 +6,7 @@ import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import type { Schedule } from '@/types/database.types'
+import type { Class, Profile, Schedule } from '@/types/database.types'
 
 // ─── Hari dalam seminggu ─────────────────────────────────────────────────────
 
@@ -29,6 +29,8 @@ const jadwalSchema = z
       .int()
       .min(1)
       .max(6),
+    class_id: z.string().min(1, 'Kelas wajib dipilih'),
+    teacher_id: z.string().min(1, 'Guru pengajar wajib dipilih'),
     start_time: z.string().min(1, 'Jam mulai wajib diisi'),
     end_time: z.string().min(1, 'Jam selesai wajib diisi'),
   })
@@ -46,6 +48,10 @@ export interface ScheduleFormModalProps {
   initialData?: Schedule
   /** Hari yang dipilih sebelumnya (dari klik kolom WeeklyGrid) */
   defaultDay?: number
+  defaultClassId?: string
+  defaultTeacherId?: string
+  classes: Class[]
+  teachers: Profile[]
   /** Apakah form sedang disubmit */
   isSubmitting: boolean
   /** Pesan error dari server (misal: konflik jadwal) */
@@ -58,14 +64,16 @@ export interface ScheduleFormModalProps {
 
 /**
  * Modal form tambah/edit jadwal pelajaran.
- * - Fields: mata pelajaran, hari, jam mulai, jam selesai
- * - Guru pengajar: otomatis dari profil user saat ini (dikelola di SchedulePage)
- * - Validasi: jam selesai > jam mulai, UNIQUE conflict ditampilkan sebagai serverError
- * Requirements: 10.3, 10.4
+ * - Fields: mata pelajaran, kelas, guru pengajar, hari, jam mulai, jam selesai
+ * Requirements: 8.3–8.5
  */
 export default function ScheduleFormModal({
   initialData,
   defaultDay,
+  defaultClassId,
+  defaultTeacherId,
+  classes,
+  teachers,
   isSubmitting,
   serverError,
   onSubmit,
@@ -82,6 +90,8 @@ export default function ScheduleFormModal({
     defaultValues: {
       subject: initialData?.subject ?? '',
       day_of_week: initialData?.day_of_week ?? defaultDay ?? 1,
+      class_id: initialData?.class_id ?? defaultClassId ?? (classes[0]?.id ?? ''),
+      teacher_id: initialData?.teacher_id ?? defaultTeacherId ?? (teachers[0]?.id ?? ''),
       start_time: initialData?.start_time ?? '',
       end_time: initialData?.end_time ?? '',
     },
@@ -160,6 +170,63 @@ export default function ScheduleFormModal({
                   {errors.subject.message}
                 </p>
               )}
+            </div>
+
+            {/* Kelas & Guru */}
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="sched-class">
+                  Kelas <span aria-hidden="true" className="text-destructive">*</span>
+                </Label>
+                <select
+                  id="sched-class"
+                  aria-invalid={!!errors.class_id}
+                  className={cn(
+                    'flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm',
+                    'ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
+                    'disabled:cursor-not-allowed disabled:opacity-50',
+                  )}
+                  {...register('class_id')}
+                >
+                  {classes.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+                {errors.class_id && (
+                  <p role="alert" className="text-xs text-destructive">
+                    {errors.class_id.message}
+                  </p>
+                )}
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="sched-teacher">
+                  Guru Pengajar <span aria-hidden="true" className="text-destructive">*</span>
+                </Label>
+                <select
+                  id="sched-teacher"
+                  aria-invalid={!!errors.teacher_id}
+                  className={cn(
+                    'flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm',
+                    'ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
+                    'disabled:cursor-not-allowed disabled:opacity-50',
+                  )}
+                  {...register('teacher_id')}
+                >
+                  {teachers.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.full_name}
+                    </option>
+                  ))}
+                </select>
+                {errors.teacher_id && (
+                  <p role="alert" className="text-xs text-destructive">
+                    {errors.teacher_id.message}
+                  </p>
+                )}
+              </div>
             </div>
 
             {/* Hari */}

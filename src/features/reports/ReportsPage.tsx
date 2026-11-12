@@ -12,8 +12,12 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { getClasses } from '@/services/classService'
-import { supabase } from '@/services/supabase'
-import { generateAttendancePdf, generateReportCardPdf } from '@/services/reportService'
+import { getSemestersByAcademicYear } from '@/services/settingsService'
+import {
+  generateAttendancePdf,
+  generateReportCardPdf,
+  getStudentsByClass,
+} from '@/services/reportService'
 import type { Class, Student, Semester } from '@/types/database.types'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -59,6 +63,20 @@ export default function ReportsPage() {
 
   async function handleAttendancePrint() {
     if (!attendanceClassId || !startDate || !endDate) return
+    if (startDate > endDate) {
+      toastError('Rentang tanggal tidak valid', 'Tanggal mulai tidak boleh melebihi tanggal akhir.')
+      return
+    }
+    const diffDays =
+      Math.floor(
+        (new Date(endDate + 'T00:00:00').getTime() -
+          new Date(startDate + 'T00:00:00').getTime()) /
+          (1000 * 60 * 60 * 24)
+      ) + 1
+    if (diffDays > 366) {
+      toastError('Rentang tanggal terlalu panjang', 'Rentang tanggal laporan kehadiran maksimal 366 hari.')
+      return
+    }
     setAttendanceLoading(true)
     try {
       await generateAttendancePdf(attendanceClassId, startDate, endDate)
@@ -90,23 +108,17 @@ export default function ReportsPage() {
       return
     }
     setStudentsLoading(true)
-    ;(async () => {
-      try {
-        const { data, error } = await supabase
-          .from('class_students')
-          .select('students(*)')
-          .eq('class_id', raporClassId)
-        if (error) throw new Error(error.message)
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const list: Student[] = (data ?? []).map((row: any) => row.students).filter(Boolean)
+    getStudentsByClass(raporClassId)
+      .then((list) => {
         setStudents(list)
         setSelectedStudentId(list[0]?.id ?? '')
-      } catch (err) {
+      })
+      .catch((err) => {
         toastError('Gagal memuat daftar siswa', (err as Error).message)
-      } finally {
+      })
+      .finally(() => {
         setStudentsLoading(false)
-      }
-    })()
+      })
   }, [raporClassId, toastError])
 
   // Fetch semester saat activeAcademicYear berubah
@@ -117,22 +129,17 @@ export default function ReportsPage() {
       return
     }
     setSemestersLoading(true)
-    ;(async () => {
-      try {
-        const { data, error } = await supabase
-          .from('semesters')
-          .select('*')
-          .eq('academic_year_id', activeAcademicYear.id)
-        if (error) throw new Error(error.message)
-        const list = (data ?? []) as Semester[]
+    getSemestersByAcademicYear(activeAcademicYear.id)
+      .then((list) => {
         setSemesters(list)
         setSelectedSemesterId(list[0]?.id ?? '')
-      } catch (err) {
+      })
+      .catch((err) => {
         toastError('Gagal memuat daftar semester', (err as Error).message)
-      } finally {
+      })
+      .finally(() => {
         setSemestersLoading(false)
-      }
-    })()
+      })
   }, [activeAcademicYear?.id, toastError])
 
   async function handleRaporPrint() {

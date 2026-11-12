@@ -10,9 +10,9 @@ inclusion: always
 
 | Role | Access |
 |---|---|
-| `Guru` | Dashboard, Attendance, Classes, Students, Schedules, Grades, Reports, Settings |
-| `Kepala_Sekolah` | Dashboard, Attendance, Schedules, Grades, Reports, Users, Settings |
-| `Staf_Admin` | Dashboard, Attendance, Classes, Students, Schedules, Grades, Users, Settings |
+| `Guru` | Dashboard, Classes (read-only), Students (read-only + Notes CRUD), Attendance (input & recap), Schedules (read-only), Grades (input scores), Reports, Settings (profile) |
+| `Kepala_Sekolah` | Dashboard, Classes (read-only), Students (read-only), Attendance (read-only), Schedules (read-only), Grades (read-only), Reports, Users (read-only), Settings (profile + read-only school config) |
+| `Staf_Admin` | Full access (CRUD) to Dashboard, Classes, Students, Attendance, Schedules, Grades, Reports, Users, Settings |
 
 ## Domain entities
 

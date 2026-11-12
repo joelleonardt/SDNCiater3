@@ -15,18 +15,19 @@ import {
   createClass,
   updateClass,
   deleteClass,
+  type ClassWithDetails,
 } from '@/services/classService'
-import type { Class } from '@/types/database.types'
+import { getTeachers } from '@/services/scheduleService'
+import type { Profile } from '@/types/database.types'
 
 // ─── Tipe lokal ──────────────────────────────────────────────────────────────
 
-// Kelas diperkaya dengan nama wali kelas (belum join dari profiles)
-type ClassRow = Class & { homeroom_teacher_name?: string }
+type ClassRow = ClassWithDetails
 
 type FormValues = {
   name: string
   grade_level: number
-  homeroom_teacher_name?: string
+  homeroom_teacher_id?: string
 }
 
 const PAGE_SIZE = 10
@@ -35,7 +36,7 @@ const PAGE_SIZE = 10
  * Halaman daftar kelas.
  * - Guru dan Staf_Admin dapat menambah/edit/hapus kelas.
  * - Kepala_Sekolah hanya dapat melihat.
- * Requirements: 7.1–7.5
+ * Requirements: 5.1–5.6
  */
 export default function ClassesPage() {
   const profile = useAuthStore((s) => s.profile)
@@ -44,6 +45,7 @@ export default function ClassesPage() {
 
   // ── Data ──────────────────────────────────────────────────────────────────
   const [rows, setRows] = React.useState<ClassRow[]>([])
+  const [teachers, setTeachers] = React.useState<Profile[]>([])
   const [isLoading, setIsLoading] = React.useState(false)
 
   // ── Search + pagination ───────────────────────────────────────────────────
@@ -54,23 +56,27 @@ export default function ClassesPage() {
   // ── Modal tambah/edit ─────────────────────────────────────────────────────
   const [modalOpen, setModalOpen] = React.useState(false)
   const [editTarget, setEditTarget] = React.useState<ClassRow | undefined>()
+  const [formError, setFormError] = React.useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = React.useState(false)
 
   // ── Konfirmasi hapus ──────────────────────────────────────────────────────
   const [deleteTarget, setDeleteTarget] = React.useState<ClassRow | null>(null)
   const [isDeleting, setIsDeleting] = React.useState(false)
 
-  // Peran yang boleh CUD
-  const canEdit =
-    profile?.role === 'Guru' || profile?.role === 'Staf_Admin'
+  // Peran yang boleh CUD (Hanya Staf_Admin, Req 1.4 & 5.2-5.5)
+  const canEdit = profile?.role === 'Staf_Admin'
 
   // ── Fetch ─────────────────────────────────────────────────────────────────
   const fetchClasses = React.useCallback(async () => {
     if (!profile?.school_id) return
     setIsLoading(true)
     try {
-      const data = await getClasses(profile.school_id, activeAcademicYear?.id ?? null)
+      const [data, teacherList] = await Promise.all([
+        getClasses(profile.school_id, activeAcademicYear?.id ?? null),
+        getTeachers(profile.school_id),
+      ])
       setRows(data)
+      setTeachers(teacherList)
       setPageIndex(0) // reset ke halaman pertama setelah fetch
     } catch (err) {
       toastError('Gagal memuat data kelas', (err as Error).message)
@@ -90,7 +96,8 @@ export default function ClassesPage() {
     return rows.filter(
       (r) =>
         r.name.toLowerCase().includes(q) ||
-        String(r.grade_level).includes(q),
+        String(r.grade_level).includes(q) ||
+        (r.homeroom_teacher_name ?? '').toLowerCase().includes(q),
     )
   }, [rows, search])
 
@@ -119,6 +126,12 @@ export default function ClassesPage() {
         header: 'Wali Kelas',
         cell: (row) => row.homeroom_teacher_name ?? '—',
       },
+      {
+        key: 'student_count',
+        header: 'Jumlah Siswa',
+        cell: (row) => `${row.student_count ?? 0} siswa`,
+        className: 'w-32',
+      },
       ...(canEdit
         ? [
             {
@@ -132,6 +145,7 @@ export default function ClassesPage() {
                     size="sm"
                     onClick={() => {
                       setEditTarget(row)
+                      setFormError(null)
                       setModalOpen(true)
                     }}
                   >
@@ -157,13 +171,13 @@ export default function ClassesPage() {
   async function handleFormSubmit(values: FormValues) {
     if (!profile?.school_id || !activeAcademicYear?.id) return
     setIsSubmitting(true)
+    setFormError(null)
     try {
       if (editTarget) {
         await updateClass(editTarget.id, {
           name: values.name,
           grade_level: values.grade_level,
-          // shortcut: homeroom_teacher_id tidak di-resolve dari nama; perlu fitur pencarian guru
-          homeroom_teacher_id: null,
+          homeroom_teacher_id: values.homeroom_teacher_id || null,
         })
         toastSuccess('Kelas berhasil diperbarui')
       } else {
@@ -172,6 +186,7 @@ export default function ClassesPage() {
           academic_year_id: activeAcademicYear.id,
           name: values.name,
           grade_level: values.grade_level,
+          homeroom_teacher_id: values.homeroom_teacher_id || null,
         })
         toastSuccess('Kelas berhasil ditambahkan')
       }
@@ -179,7 +194,9 @@ export default function ClassesPage() {
       setEditTarget(undefined)
       await fetchClasses()
     } catch (err) {
-      toastError('Gagal menyimpan kelas', (err as Error).message)
+      const msg = (err as Error).message
+      setFormError(msg)
+      toastError('Gagal menyimpan kelas', msg)
     } finally {
       setIsSubmitting(false)
     }
@@ -291,11 +308,14 @@ export default function ClassesPage() {
       {modalOpen && (
         <ClassFormModal
           initialData={editTarget}
+          teachers={teachers}
+          serverError={formError}
           isSubmitting={isSubmitting}
           onSubmit={handleFormSubmit}
           onCancel={() => {
             setModalOpen(false)
             setEditTarget(undefined)
+            setFormError(null)
           }}
         />
       )}

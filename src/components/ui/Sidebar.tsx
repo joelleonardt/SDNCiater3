@@ -42,22 +42,22 @@ const NAV_ITEMS: NavItem[] = [
     allowedRoles: ['Guru', 'Kepala_Sekolah', 'Staf_Admin'],
   },
   {
-    label: 'Kehadiran',
-    path: '/attendance',
-    icon: CalendarCheck,
-    allowedRoles: ['Guru', 'Kepala_Sekolah', 'Staf_Admin'],
-  },
-  {
     label: 'Kelas',
     path: '/classes',
     icon: BookOpen,
-    allowedRoles: ['Guru', 'Staf_Admin'],
+    allowedRoles: ['Guru', 'Kepala_Sekolah', 'Staf_Admin'],
   },
   {
     label: 'Siswa',
     path: '/students',
     icon: GraduationCap,
-    allowedRoles: ['Guru', 'Staf_Admin'],
+    allowedRoles: ['Guru', 'Kepala_Sekolah', 'Staf_Admin'],
+  },
+  {
+    label: 'Kehadiran',
+    path: '/attendance',
+    icon: CalendarCheck,
+    allowedRoles: ['Guru', 'Kepala_Sekolah', 'Staf_Admin'],
   },
   {
     label: 'Jadwal',
@@ -75,7 +75,7 @@ const NAV_ITEMS: NavItem[] = [
     label: 'Laporan',
     path: '/reports',
     icon: BarChart3,
-    allowedRoles: ['Guru', 'Kepala_Sekolah'],
+    allowedRoles: ['Guru', 'Kepala_Sekolah', 'Staf_Admin'],
   },
   {
     label: 'Pengguna',

@@ -1,11 +1,38 @@
 import { supabase } from '@/services/supabase'
+import { calculateAttendancePercentage } from '@/lib/utils'
+import type { Profile } from '@/types/database.types'
+
+type Role = Profile['role']
 
 export interface DashboardSummary {
   totalSiswa: number
   totalKelas: number
-  /** Persentase kehadiran hari ini (0–100), atau null jika tidak ada data */
+  /** Persentase kehadiran hari ini (0–100, 1 desimal), atau null jika tidak ada data */
   persentaseKehadiran: number | null
   totalCatatan7Hari: number
+}
+
+export interface TodayScheduleItem {
+  id: string
+  subject: string
+  class_name: string
+  start_time: string
+  end_time: string
+}
+
+export interface DashboardNoteItem {
+  id: string
+  student_name: string
+  category: 'Perilaku' | 'Prestasi'
+  content: string
+  note_date: string
+}
+
+export interface WeeklyAttendanceDay {
+  label: string
+  tanggal: string
+  persen: number
+  total: number
 }
 
 /**
@@ -82,13 +109,161 @@ export async function getDashboardSummary(
   const totalKelas = kelasResult.count ?? 0
   const totalCatatan7Hari = catatanResult.count ?? 0
 
-  // Hitung persentase kehadiran hari ini
+  // Hitung persentase kehadiran hari ini: (jumlah Hadir / total siswa aktif) * 100 (1 desimal, Req 4.1)
   let persentaseKehadiran: number | null = null
   const attendanceData = kehadiranResult.data
-  if (attendanceData && attendanceData.length > 0) {
+  if (attendanceData && attendanceData.length > 0 && totalSiswa > 0) {
     const hadir = attendanceData.filter((r) => r.status === 'Hadir').length
-    persentaseKehadiran = Math.round((hadir / attendanceData.length) * 100)
+    persentaseKehadiran = calculateAttendancePercentage(hadir, totalSiswa)
   }
 
   return { totalSiswa, totalKelas, persentaseKehadiran, totalCatatan7Hari }
+}
+
+/**
+ * Mengambil jadwal kelas hari ini.
+ * - Guru: jadwal mengajar guru tersebut hari ini
+ * - Staf_Admin / Kepala_Sekolah: semua jadwal kelas di sekolah hari ini
+ * Diurutkan berdasarkan start_time ASC (Req 4.2).
+ */
+export async function getTodaySchedules(
+  schoolId: string,
+  profileId: string,
+  role: Role,
+  dayOfWeek: number,
+): Promise<TodayScheduleItem[]> {
+  if (dayOfWeek < 1 || dayOfWeek > 6) return []
+
+  let query = supabase
+    .from('schedules')
+    .select('id, subject, start_time, end_time, classes!inner(name, school_id)')
+    .eq('classes.school_id', schoolId)
+    .eq('day_of_week', dayOfWeek)
+    .order('start_time', { ascending: true })
+
+  if (role === 'Guru') {
+    query = query.eq('teacher_id', profileId)
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data, error } = (await query) as { data: any[] | null; error: unknown }
+  if (error || !data) return []
+
+  return data.map((row) => ({
+    id: row.id as string,
+    subject: row.subject as string,
+    class_name: (row.classes as { name: string } | null)?.name ?? '—',
+    start_time: row.start_time as string,
+    end_time: row.end_time as string,
+  }))
+}
+
+/**
+ * Mengambil 5 catatan terbaru di sekolah dalam 7 hari terakhir untuk panel Dashboard (Req 4.3).
+ */
+export async function getRecentNotesForDashboard(
+  schoolId: string,
+): Promise<DashboardNoteItem[]> {
+  const d = new Date()
+  d.setDate(d.getDate() - 7)
+  const sevenDaysAgoStr = d.toISOString().slice(0, 10)
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data, error } = (await supabase
+    .from('notes')
+    .select('id, category, content, note_date, students!inner(id, school_id, full_name)')
+    .eq('students.school_id', schoolId)
+    .gte('note_date', sevenDaysAgoStr)
+    .order('note_date', { ascending: false })
+    .limit(5)) as { data: any[] | null; error: unknown }
+
+  if (error || !data) return []
+
+  return data.map((row) => ({
+    id: row.id as string,
+    category: row.category as 'Perilaku' | 'Prestasi',
+    content: row.content as string,
+    note_date: row.note_date as string,
+    student_name: (row.students as { full_name: string } | null)?.full_name ?? '—',
+  }))
+}
+
+const HARI_LABEL = ['Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab', 'Min']
+
+/**
+ * Menghasilkan daftar tanggal (YYYY-MM-DD) untuk minggu berjalan (Senin s.d. Minggu, Req 4.4).
+ */
+export function getCurrentWeekDates(referenceDate: Date = new Date()): string[] {
+  const current = new Date(referenceDate)
+  const day = current.getDay() // 0=Minggu, 1=Senin, ..., 6=Sabtu
+  const diffToMonday = day === 0 ? -6 : 1 - day
+  const monday = new Date(current)
+  monday.setDate(current.getDate() + diffToMonday)
+
+  const dates: string[] = []
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(monday)
+    d.setDate(monday.getDate() + i)
+    const yyyy = d.getFullYear()
+    const mm = String(d.getMonth() + 1).padStart(2, '0')
+    const dd = String(d.getDate()).padStart(2, '0')
+    dates.push(`${yyyy}-${mm}-${dd}`)
+  }
+  return dates
+}
+
+/**
+ * Mengambil persentase kehadiran harian untuk minggu berjalan (Senin–Minggu, Req 4.4).
+ */
+export async function getWeeklyAttendanceData(
+  schoolId: string,
+): Promise<WeeklyAttendanceDay[]> {
+  const tanggalList = getCurrentWeekDates()
+  const dari = tanggalList[0]
+  const sampai = tanggalList[tanggalList.length - 1]
+
+  const [siswaCountRes, attendanceRes] = await Promise.all([
+    supabase
+      .from('students')
+      .select('id', { count: 'exact', head: true })
+      .eq('school_id', schoolId)
+      .eq('is_deleted', false),
+    supabase
+      .from('attendance')
+      .select('date, status, class_id, classes!inner(school_id)')
+      .eq('classes.school_id', schoolId)
+      .gte('date', dari)
+      .lte('date', sampai) as unknown as Promise<{
+        data: Array<{ date: string; status: string }> | null
+        error: Error | null
+      }>,
+  ])
+
+  if (attendanceRes.error) {
+    throw attendanceRes.error
+  }
+
+  const totalSiswa = siswaCountRes.count ?? 0
+  const perTanggal: Record<string, { hadir: number; total: number }> = {}
+  tanggalList.forEach((t) => {
+    perTanggal[t] = { hadir: 0, total: 0 }
+  })
+
+  for (const row of attendanceRes.data ?? []) {
+    if (perTanggal[row.date]) {
+      perTanggal[row.date].total++
+      if (row.status === 'Hadir') perTanggal[row.date].hadir++
+    }
+  }
+
+  return tanggalList.map((tanggal, index) => {
+    const { hadir, total } = perTanggal[tanggal]
+    const denominator = totalSiswa > 0 ? totalSiswa : total
+    return {
+      label: HARI_LABEL[index],
+      tanggal,
+      persen: total > 0 && denominator > 0 ? calculateAttendancePercentage(hadir, denominator) : 0,
+      total,
+    }
+  })
 }

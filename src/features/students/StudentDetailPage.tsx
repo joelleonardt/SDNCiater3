@@ -1,19 +1,26 @@
 import * as React from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { ArrowLeft, Pencil } from 'lucide-react'
 import PageHeader from '@/components/ui/PageHeader'
 import { Button } from '@/components/ui/button'
 import { useToast } from '@/components/ui/Toast/useToast'
 import { useAuthStore } from '@/stores/authStore'
-import { getStudentById, updateStudent } from '@/services/studentService'
-import { supabase } from '@/services/supabase'
+import { useAppStore } from '@/stores/appStore'
+import {
+  getStudentById,
+  getStudentClasses,
+  getStudentAttendanceSummary,
+  updateStudent,
+  type StudentAttendanceSummary,
+} from '@/services/studentService'
+import { getClasses } from '@/services/classService'
 import type { Student, Class } from '@/types/database.types'
 import StudentFormModal, { type StudentFormValues } from './StudentFormModal'
+import NoteList from '@/features/notes/NoteList'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function formatDate(iso: string) {
-  // Tampilkan tanggal dalam format DD/MM/YYYY (lokal Indonesia)
   return new Intl.DateTimeFormat('id-ID', {
     day: '2-digit',
     month: 'long',
@@ -30,42 +37,36 @@ function DetailRow({ label, value }: { label: string; value?: string | null }) {
   )
 }
 
-// ─── Ambil kelas siswa ────────────────────────────────────────────────────────
-
-async function getStudentClasses(studentId: string): Promise<Class[]> {
-  const { data, error } = await supabase
-    .from('class_students')
-    .select('class_id, classes(*)')
-    .eq('student_id', studentId)
-
-  if (error) throw new Error(error.message)
-
-  // Supabase returns the joined row as classes: Class
-  return (data ?? [])
-    .map((row) => (row as { class_id: string; classes: Class | null }).classes)
-    .filter((c): c is Class => c !== null)
-}
-
 // ─── Komponen utama ───────────────────────────────────────────────────────────
 
 /**
  * Halaman detail siswa.
- * Menampilkan data lengkap siswa beserta daftar kelas yang diikuti.
+ * Menampilkan data lengkap siswa, kelas yang diikuti, ringkasan kehadiran,
+ * dan daftar catatan perilaku/prestasi (NoteList).
  * Tombol Edit membuka StudentFormModal.
  *
- * Requirements: 8.3, 8.5, 8.6
+ * Requirements: 6.5, 6.6, 9.2
  */
 export default function StudentDetailPage() {
   const { id } = useParams<{ id: string }>()
+  const [searchParams, setSearchParams] = useSearchParams()
   const navigate = useNavigate()
   const { toastSuccess, toastError } = useToast()
   const profile = useAuthStore((s) => s.profile)
+  const activeAcademicYear = useAppStore((s) => s.activeAcademicYear)
 
   const [student, setStudent] = React.useState<Student | null>(null)
   const [classes, setClasses] = React.useState<Class[]>([])
+  const [allClasses, setAllClasses] = React.useState<Class[]>([])
+  const [attendanceSummary, setAttendanceSummary] = React.useState<StudentAttendanceSummary>({
+    hadir: 0,
+    sakit: 0,
+    izin: 0,
+    alfa: 0,
+  })
   const [loading, setLoading] = React.useState(true)
   const [notFound, setNotFound] = React.useState(false)
-  const [editOpen, setEditOpen] = React.useState(false)
+  const [editOpen, setEditOpen] = React.useState(searchParams.get('edit') === '1')
 
   // ── Muat data siswa ──
   React.useEffect(() => {
@@ -79,13 +80,15 @@ export default function StudentDetailPage() {
 
     async function load() {
       try {
-        const [s, c] = await Promise.all([
+        const [s, c, att] = await Promise.all([
           getStudentById(id!),
           getStudentClasses(id!),
+          getStudentAttendanceSummary(id!),
         ])
         if (cancelled) return
         setStudent(s)
         setClasses(c)
+        setAttendanceSummary(att)
       } catch {
         if (cancelled) return
         setNotFound(true)
@@ -98,27 +101,44 @@ export default function StudentDetailPage() {
     return () => { cancelled = true }
   }, [id])
 
+  React.useEffect(() => {
+    if (!profile?.school_id) return
+    getClasses(profile.school_id, activeAcademicYear?.id ?? null)
+      .then((list) => setAllClasses(list))
+      .catch(() => {})
+  }, [profile?.school_id, activeAcademicYear?.id])
+
   // ── Handler edit ──
   async function handleEdit(values: StudentFormValues) {
     if (!student) return
     try {
-      const updated = await updateStudent(student.id, {
-        full_name: values.full_name,
-        nis: values.nis,
-        gender: values.gender,
-        date_of_birth: values.date_of_birth,
-        parent_name: values.parent_name || null,
-        parent_contact: values.parent_contact || null,
-      })
+      const updated = await updateStudent(
+        student.id,
+        {
+          full_name: values.full_name,
+          nis: values.nis,
+          gender: values.gender,
+          date_of_birth: values.date_of_birth,
+          parent_name: values.parent_name || null,
+          parent_contact: values.parent_contact || null,
+        },
+        values.class_id || null,
+        activeAcademicYear?.id ?? null
+      )
+      const updatedClasses = await getStudentClasses(student.id)
       setStudent(updated)
+      setClasses(updatedClasses)
       setEditOpen(false)
+      if (searchParams.has('edit')) {
+        searchParams.delete('edit')
+        setSearchParams(searchParams, { replace: true })
+      }
       toastSuccess('Data siswa berhasil diperbarui')
     } catch (err) {
       toastError(
         'Gagal memperbarui data siswa',
         err instanceof Error ? err.message : 'Terjadi kesalahan. Silakan coba lagi.'
       )
-      // Re-throw agar modal tetap terbuka (isSubmitting reset)
       throw err
     }
   }
@@ -145,10 +165,11 @@ export default function StudentDetailPage() {
     )
   }
 
-  const canEdit = profile?.role === 'Guru' || profile?.role === 'Staf_Admin'
+  // Hanya Staf_Admin yang dapat mengedit data pokok siswa (Req 1.4 & 6.6)
+  const canEdit = profile?.role === 'Staf_Admin'
 
   return (
-    <>
+    <div className="space-y-6 p-6">
       <PageHeader
         title={student.full_name}
         description={`NIS: ${student.nis}`}
@@ -170,7 +191,7 @@ export default function StudentDetailPage() {
 
       <div className="grid gap-6 lg:grid-cols-3">
         {/* Data diri */}
-        <div className="lg:col-span-2">
+        <div className="lg:col-span-2 space-y-6">
           <div className="rounded-lg border border-border bg-card">
             <div className="border-b border-border px-6 py-4">
               <h2 className="text-base font-semibold text-foreground">Data Diri</h2>
@@ -184,10 +205,20 @@ export default function StudentDetailPage() {
               <DetailRow label="Kontak Orang Tua" value={student.parent_contact} />
             </dl>
           </div>
+
+          {/* Catatan Perilaku & Prestasi (Req 6.5, 9.2) */}
+          <div className="rounded-lg border border-border bg-card">
+            <div className="border-b border-border px-6 py-4">
+              <h2 className="text-base font-semibold text-foreground">Catatan Perilaku & Prestasi</h2>
+            </div>
+            <div className="p-6">
+              <NoteList studentId={student.id} />
+            </div>
+          </div>
         </div>
 
-        {/* Kelas yang diikuti */}
-        <div>
+        {/* Kolom kanan: Kelas + Ringkasan Kehadiran */}
+        <div className="space-y-6">
           <div className="rounded-lg border border-border bg-card">
             <div className="border-b border-border px-6 py-4">
               <h2 className="text-base font-semibold text-foreground">Kelas</h2>
@@ -211,16 +242,48 @@ export default function StudentDetailPage() {
               )}
             </div>
           </div>
+
+          {/* Ringkasan Kehadiran (Req 6.5) */}
+          <div className="rounded-lg border border-border bg-card">
+            <div className="border-b border-border px-6 py-4">
+              <h2 className="text-base font-semibold text-foreground">Ringkasan Kehadiran</h2>
+            </div>
+            <div className="grid grid-cols-2 gap-3 p-6">
+              <div className="rounded-md bg-green-50 p-3 text-center">
+                <p className="text-xs font-medium text-green-700">Hadir</p>
+                <p className="text-xl font-bold text-green-800">{attendanceSummary.hadir}</p>
+              </div>
+              <div className="rounded-md bg-yellow-50 p-3 text-center">
+                <p className="text-xs font-medium text-yellow-700">Sakit</p>
+                <p className="text-xl font-bold text-yellow-800">{attendanceSummary.sakit}</p>
+              </div>
+              <div className="rounded-md bg-blue-50 p-3 text-center">
+                <p className="text-xs font-medium text-blue-700">Izin</p>
+                <p className="text-xl font-bold text-blue-800">{attendanceSummary.izin}</p>
+              </div>
+              <div className="rounded-md bg-red-50 p-3 text-center">
+                <p className="text-xs font-medium text-red-700">Alfa</p>
+                <p className="text-xl font-bold text-red-800">{attendanceSummary.alfa}</p>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
       {/* Modal edit */}
       <StudentFormModal
         open={editOpen}
-        student={student}
+        student={{ ...student, class_id: classes[0]?.id ?? null }}
+        classes={allClasses}
         onSubmit={handleEdit}
-        onClose={() => setEditOpen(false)}
+        onClose={() => {
+          setEditOpen(false)
+          if (searchParams.has('edit')) {
+            searchParams.delete('edit')
+            setSearchParams(searchParams, { replace: true })
+          }
+        }}
       />
-    </>
+    </div>
   )
 }

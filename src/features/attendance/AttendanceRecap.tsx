@@ -33,10 +33,10 @@ const COLUMNS: ColumnDef<AttendanceRecapRow>[] = [
     cell: (r) => <span className="text-blue-700">{r.izin}</span>,
   },
   {
-    key: 'alpa',
-    header: 'Alpa',
+    key: 'alfa',
+    header: 'Alfa',
     className: 'text-right w-20',
-    cell: (r) => <span className="text-red-700">{r.alpa}</span>,
+    cell: (r) => <span className="text-red-700">{r.alfa ?? r.alpa}</span>,
   },
   {
     key: 'total',

@@ -192,11 +192,11 @@ export const router = createBrowserRouter([
         ),
       },
 
-      // ── Kelas — Guru & Staf_Admin saja (Requirements: 3.6) ──
+      // ── Kelas — semua peran (Kepala_Sekolah & Guru read-only, Staf_Admin CRUD; Req 1.5, 3.2–3.4, 5.1–5.5) ──
       {
         path: 'classes',
         element: (
-          <RoleGuard allowedRoles={['Guru', 'Staf_Admin']}>
+          <RoleGuard allowedRoles={['Guru', 'Kepala_Sekolah', 'Staf_Admin']}>
             <PageWrapper>
               <ClassesPage />
             </PageWrapper>
@@ -204,11 +204,11 @@ export const router = createBrowserRouter([
         ),
       },
 
-      // ── Siswa — Guru & Staf_Admin saja (Requirements: 3.6) ──
+      // ── Siswa — semua peran (Kepala_Sekolah & Guru read-only siswa, Staf_Admin CRUD; Req 1.5, 3.2–3.4, 6.1–6.7) ──
       {
         path: 'students',
         element: (
-          <RoleGuard allowedRoles={['Guru', 'Staf_Admin']}>
+          <RoleGuard allowedRoles={['Guru', 'Kepala_Sekolah', 'Staf_Admin']}>
             <PageWrapper>
               <StudentsPage />
             </PageWrapper>
@@ -218,7 +218,7 @@ export const router = createBrowserRouter([
       {
         path: 'students/:id',
         element: (
-          <RoleGuard allowedRoles={['Guru', 'Staf_Admin']}>
+          <RoleGuard allowedRoles={['Guru', 'Kepala_Sekolah', 'Staf_Admin']}>
             <PageWrapper>
               <StudentDetailPage />
             </PageWrapper>
@@ -246,11 +246,11 @@ export const router = createBrowserRouter([
         ),
       },
 
-      // ── Laporan — Guru & Kepala_Sekolah saja (Requirements: 3.6) ──
+      // ── Laporan — semua peran (Guru, Kepala_Sekolah, Staf_Admin; Req 3.2–3.4, 11.1, 11.2) ──
       {
         path: 'reports',
         element: (
-          <RoleGuard allowedRoles={['Guru', 'Kepala_Sekolah']}>
+          <RoleGuard allowedRoles={['Guru', 'Kepala_Sekolah', 'Staf_Admin']}>
             <PageWrapper>
               <ReportsPage />
             </PageWrapper>
@@ -258,7 +258,7 @@ export const router = createBrowserRouter([
         ),
       },
 
-      // ── Pengguna — Kepala_Sekolah & Staf_Admin saja (Requirements: 12.1, 3.6) ──
+      // ── Pengguna — Kepala_Sekolah (read-only) & Staf_Admin (CRUD); Guru dialihkan ke /403 (Req 3.5, 12.1, 12.9) ──
       {
         path: 'users',
         element: (

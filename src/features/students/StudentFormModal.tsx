@@ -6,7 +6,11 @@ import { Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import type { Student } from '@/types/database.types'
+import type { Student, Class } from '@/types/database.types'
+
+function todayISO() {
+  return new Date().toISOString().slice(0, 10)
+}
 
 // ─── Schema ───────────────────────────────────────────────────────────────────
 
@@ -22,7 +26,13 @@ const studentSchema = z.object({
   gender: z.enum(['Laki-laki', 'Perempuan'], {
     required_error: 'Jenis kelamin wajib dipilih',
   }),
-  date_of_birth: z.string().min(1, 'Tanggal lahir wajib diisi'),
+  date_of_birth: z
+    .string()
+    .min(1, 'Tanggal lahir wajib diisi')
+    .refine((val) => val <= todayISO(), {
+      message: 'Tanggal lahir harus di masa lalu',
+    }),
+  class_id: z.string().optional().or(z.literal('')),
   parent_name: z
     .string()
     .max(100, 'Nama orang tua maksimal 100 karakter')
@@ -43,7 +53,9 @@ export interface StudentFormModalProps {
   /** Apakah modal terbuka */
   open: boolean
   /** Data siswa untuk mode edit; undefined berarti mode tambah */
-  student?: Student
+  student?: Student & { class_id?: string | null }
+  /** Daftar kelas untuk pilihan pendaftaran kelas */
+  classes?: Class[]
   /** Dipanggil dengan nilai form saat user menekan Simpan */
   onSubmit: (values: StudentFormValues) => Promise<void>
   /** Dipanggil saat user menutup modal */
@@ -54,11 +66,12 @@ export interface StudentFormModalProps {
  * Modal form tambah/edit siswa.
  * Gunakan onSubmit async untuk menampilkan loading state.
  *
- * Requirements: 8.2, 8.5
+ * Requirements: 6.4, 6.6
  */
 export default function StudentFormModal({
   open,
   student,
+  classes = [],
   onSubmit,
   onClose,
 }: StudentFormModalProps) {
@@ -76,6 +89,7 @@ export default function StudentFormModal({
       nis: student?.nis ?? '',
       gender: student?.gender ?? undefined,
       date_of_birth: student?.date_of_birth ?? '',
+      class_id: student?.class_id ?? '',
       parent_name: student?.parent_name ?? '',
       parent_contact: student?.parent_contact ?? '',
     },
@@ -89,6 +103,7 @@ export default function StudentFormModal({
         nis: student?.nis ?? '',
         gender: student?.gender ?? undefined,
         date_of_birth: student?.date_of_birth ?? '',
+        class_id: student?.class_id ?? '',
         parent_name: student?.parent_name ?? '',
         parent_contact: student?.parent_contact ?? '',
       })
@@ -221,6 +236,25 @@ export default function StudentFormModal({
                 </p>
               )}
             </div>
+
+            {/* Kelas */}
+            {classes.length > 0 && (
+              <div className="space-y-1.5">
+                <Label htmlFor="class_id">Kelas</Label>
+                <select
+                  id="class_id"
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                  {...register('class_id')}
+                >
+                  <option value="">-- Pilih kelas (opsional) --</option>
+                  {classes.map((cls) => (
+                    <option key={cls.id} value={cls.id}>
+                      {cls.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
 
             {/* Nama orang tua */}
             <div className="space-y-1.5">

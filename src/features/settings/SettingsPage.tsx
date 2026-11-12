@@ -2,8 +2,10 @@ import * as React from 'react'
 import { useForm, useFieldArray } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { Trash2, Plus, CheckCircle } from 'lucide-react'
+import { Trash2, Plus, CheckCircle, Upload } from 'lucide-react'
 import { useAuthStore } from '@/stores/authStore'
+import { academicYearSchema } from '@/lib/validators'
+import { validateAvatarFile, validateGradeScales } from '@/services/settingsService'
 import PageHeader from '@/components/ui/PageHeader'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -35,16 +37,12 @@ const passwordSchema = z
   })
 
 const schoolSchema = z.object({
-  name: z.string().min(1, 'Nama sekolah wajib diisi'),
-  address: z.string().min(1, 'Alamat wajib diisi'),
-  principal_name: z.string().min(1, 'Nama kepala sekolah wajib diisi'),
+  name: z.string().min(1, 'Nama sekolah wajib diisi').max(100, 'Maksimal 100 karakter'),
+  address: z.string().min(1, 'Alamat wajib diisi').max(255, 'Maksimal 255 karakter'),
+  principal_name: z.string().min(1, 'Nama kepala sekolah wajib diisi').max(100, 'Maksimal 100 karakter'),
 })
 
-const academicYearSchema = z.object({
-  name: z
-    .string()
-    .regex(/^\d{4}\/\d{4}$/, 'Format harus YYYY/YYYY, contoh: 2024/2025'),
-})
+const academicYearFormSchema = academicYearSchema
 
 const gradeScalesSchema = z.object({
   scales: z.array(
@@ -68,7 +66,7 @@ const gradeScalesSchema = z.object({
 type ProfileValues = z.infer<typeof profileSchema>
 type PasswordValues = z.infer<typeof passwordSchema>
 type SchoolValues = z.infer<typeof schoolSchema>
-type AcademicYearValues = z.infer<typeof academicYearSchema>
+type AcademicYearValues = z.infer<typeof academicYearFormSchema>
 type GradeScalesValues = z.infer<typeof gradeScalesSchema>
 
 // ─── Section: Profil Saya ─────────────────────────────────────────────────────
@@ -77,8 +75,11 @@ function ProfilSection() {
   const {
     profile,
     updateProfile,
+    uploadAvatar,
     updatePassword,
   } = useSettings()
+  const [avatarError, setAvatarError] = React.useState<string | null>(null)
+  const [uploadingAvatar, setUploadingAvatar] = React.useState(false)
 
   const profileForm = useForm<ProfileValues>({
     resolver: zodResolver(profileSchema),
@@ -92,6 +93,28 @@ function ProfilSection() {
     resolver: zodResolver(passwordSchema),
     defaultValues: { new_password: '', confirm_password: '' },
   })
+
+  async function handleAvatarChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const validationErr = validateAvatarFile(file)
+    if (validationErr) {
+      setAvatarError(validationErr)
+      e.target.value = ''
+      return
+    }
+    setAvatarError(null)
+    setUploadingAvatar(true)
+    try {
+      const publicUrl = await uploadAvatar(file)
+      if (publicUrl) {
+        profileForm.setValue('avatar_url', publicUrl, { shouldDirty: true })
+      }
+    } finally {
+      setUploadingAvatar(false)
+      e.target.value = ''
+    }
+  }
 
   async function handleProfileSubmit(values: ProfileValues) {
     await updateProfile({
@@ -136,6 +159,32 @@ function ProfilSection() {
           </div>
 
           <div className="space-y-1.5">
+            <Label htmlFor="avatar_file">Foto Profil (JPG/PNG, maks. 2 MB)</Label>
+            <div className="flex items-center gap-3">
+              <Input
+                id="avatar_file"
+                type="file"
+                accept="image/jpeg,image/png"
+                onChange={handleAvatarChange}
+                disabled={uploadingAvatar}
+                aria-invalid={Boolean(avatarError)}
+                aria-describedby={avatarError ? 'avatar_file-error' : undefined}
+              />
+              {uploadingAvatar && (
+                <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                  <Upload className="h-3.5 w-3.5 animate-pulse" aria-hidden="true" />
+                  Mengunggah…
+                </span>
+              )}
+            </div>
+            {avatarError && (
+              <p id="avatar_file-error" role="alert" className="text-xs text-destructive">
+                {avatarError}
+              </p>
+            )}
+          </div>
+
+          <div className="space-y-1.5">
             <Label htmlFor="avatar_url">URL Avatar (opsional)</Label>
             <Input
               id="avatar_url"
@@ -151,7 +200,7 @@ function ProfilSection() {
             )}
           </div>
 
-          <Button type="submit" disabled={profileForm.formState.isSubmitting}>
+          <Button type="submit" disabled={profileForm.formState.isSubmitting || uploadingAvatar}>
             {profileForm.formState.isSubmitting ? 'Menyimpan…' : 'Simpan Profil'}
           </Button>
         </form>
@@ -214,7 +263,7 @@ function ProfilSection() {
 
 // ─── Section: Info Sekolah ────────────────────────────────────────────────────
 
-function InfoSekolahSection() {
+function InfoSekolahSection({ readOnly }: { readOnly: boolean }) {
   const { school, updateSchool } = useSettings()
 
   const form = useForm<SchoolValues>({
@@ -227,6 +276,7 @@ function InfoSekolahSection() {
   })
 
   async function handleSubmit(values: SchoolValues) {
+    if (readOnly) return
     await updateSchool(values)
   }
 
@@ -244,6 +294,7 @@ function InfoSekolahSection() {
             </Label>
             <Input
               id="school_name"
+              disabled={readOnly}
               {...form.register('name')}
               placeholder="Masukkan nama sekolah"
               aria-invalid={Boolean(form.formState.errors.name)}
@@ -262,6 +313,7 @@ function InfoSekolahSection() {
             </Label>
             <Input
               id="school_address"
+              disabled={readOnly}
               {...form.register('address')}
               placeholder="Masukkan alamat sekolah"
               aria-invalid={Boolean(form.formState.errors.address)}
@@ -280,6 +332,7 @@ function InfoSekolahSection() {
             </Label>
             <Input
               id="principal_name"
+              disabled={readOnly}
               {...form.register('principal_name')}
               placeholder="Masukkan nama kepala sekolah"
               aria-invalid={Boolean(form.formState.errors.principal_name)}
@@ -292,9 +345,11 @@ function InfoSekolahSection() {
             )}
           </div>
 
-          <Button type="submit" disabled={form.formState.isSubmitting}>
-            {form.formState.isSubmitting ? 'Menyimpan…' : 'Simpan Info Sekolah'}
-          </Button>
+          {!readOnly && (
+            <Button type="submit" disabled={form.formState.isSubmitting}>
+              {form.formState.isSubmitting ? 'Menyimpan…' : 'Simpan Info Sekolah'}
+            </Button>
+          )}
         </form>
       </CardContent>
     </Card>
@@ -303,21 +358,23 @@ function InfoSekolahSection() {
 
 // ─── Section: Tahun Ajaran ────────────────────────────────────────────────────
 
-function TahunAjaranSection() {
+function TahunAjaranSection({ readOnly }: { readOnly: boolean }) {
   const { academicYears, createAcademicYear, setActiveAcademicYear } = useSettings()
   const [activating, setActivating] = React.useState<string | null>(null)
 
   const form = useForm<AcademicYearValues>({
-    resolver: zodResolver(academicYearSchema),
+    resolver: zodResolver(academicYearFormSchema),
     defaultValues: { name: '' },
   })
 
   async function handleCreate(values: AcademicYearValues) {
+    if (readOnly) return
     await createAcademicYear(values.name)
     form.reset()
   }
 
   async function handleActivate(id: string) {
+    if (readOnly) return
     setActivating(id)
     try {
       await setActiveAcademicYear(id)
@@ -359,7 +416,7 @@ function TahunAjaranSection() {
                     </span>
                   )}
                 </div>
-                {!year.is_active && (
+                {!year.is_active && !readOnly && (
                   <Button
                     variant="outline"
                     size="sm"
@@ -375,29 +432,31 @@ function TahunAjaranSection() {
         )}
 
         {/* Form tambah tahun ajaran */}
-        <form
-          onSubmit={form.handleSubmit(handleCreate)}
-          className="flex items-start gap-2"
-        >
-          <div className="flex-1 space-y-1">
-            <Input
-              {...form.register('name')}
-              placeholder="Contoh: 2024/2025"
-              aria-label="Nama tahun ajaran"
-              aria-invalid={Boolean(form.formState.errors.name)}
-              aria-describedby={form.formState.errors.name ? 'academic-year-name-error' : undefined}
-            />
-            {form.formState.errors.name && (
-              <p id="academic-year-name-error" role="alert" className="text-xs text-destructive">
-                {form.formState.errors.name.message}
-              </p>
-            )}
-          </div>
-          <Button type="submit" disabled={form.formState.isSubmitting}>
-            <Plus className="mr-1.5 h-4 w-4" aria-hidden="true" />
-            {form.formState.isSubmitting ? 'Menambahkan…' : 'Tambah Tahun Ajaran'}
-          </Button>
-        </form>
+        {!readOnly && (
+          <form
+            onSubmit={form.handleSubmit(handleCreate)}
+            className="flex items-start gap-2"
+          >
+            <div className="flex-1 space-y-1">
+              <Input
+                {...form.register('name')}
+                placeholder="Contoh: 2024/2025"
+                aria-label="Nama tahun ajaran"
+                aria-invalid={Boolean(form.formState.errors.name)}
+                aria-describedby={form.formState.errors.name ? 'academic-year-name-error' : undefined}
+              />
+              {form.formState.errors.name && (
+                <p id="academic-year-name-error" role="alert" className="text-xs text-destructive">
+                  {form.formState.errors.name.message}
+                </p>
+              )}
+            </div>
+            <Button type="submit" disabled={form.formState.isSubmitting}>
+              <Plus className="mr-1.5 h-4 w-4" aria-hidden="true" />
+              {form.formState.isSubmitting ? 'Menambahkan…' : 'Tambah Tahun Ajaran'}
+            </Button>
+          </form>
+        )}
       </CardContent>
     </Card>
   )
@@ -405,8 +464,9 @@ function TahunAjaranSection() {
 
 // ─── Section: Skala Nilai ─────────────────────────────────────────────────────
 
-function SkalaNilaiSection() {
+function SkalaNilaiSection({ readOnly }: { readOnly: boolean }) {
   const { gradeScales, saveGradeScales } = useSettings()
+  const [scaleError, setScaleError] = React.useState<string | null>(null)
 
   const form = useForm<GradeScalesValues>({
     resolver: zodResolver(gradeScalesSchema),
@@ -426,13 +486,19 @@ function SkalaNilaiSection() {
   })
 
   async function handleSubmit(values: GradeScalesValues) {
-    await saveGradeScales(
-      values.scales.map((s) => ({
-        min_score: s.min_score,
-        max_score: s.max_score,
-        letter: s.letter,
-      })),
-    )
+    if (readOnly) return
+    const normalized = values.scales.map((s) => ({
+      min_score: s.min_score,
+      max_score: s.max_score,
+      letter: s.letter,
+    }))
+    const validationErr = validateGradeScales(normalized)
+    if (validationErr) {
+      setScaleError(validationErr)
+      return
+    }
+    setScaleError(null)
+    await saveGradeScales(normalized)
   }
 
   return (
@@ -440,11 +506,17 @@ function SkalaNilaiSection() {
       <CardHeader>
         <CardTitle>Skala Nilai</CardTitle>
         <CardDescription>
-          Tentukan rentang skor dan huruf nilai sekolah
+          Tentukan rentang skor dan huruf nilai sekolah (wajib mencakup 0–100 tanpa celah atau tumpang tindih)
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4">
+          {scaleError && (
+            <p role="alert" className="rounded-md bg-destructive/10 px-3 py-2 text-xs text-destructive">
+              {scaleError}
+            </p>
+          )}
+
           {/* Header tabel */}
           {fields.length > 0 && (
             <div className="grid grid-cols-[1fr_1fr_1fr_2.5rem] gap-2 text-xs font-medium text-muted-foreground">
@@ -466,6 +538,7 @@ function SkalaNilaiSection() {
                   type="number"
                   min={0}
                   max={100}
+                  disabled={readOnly}
                   {...form.register(`scales.${index}.min_score`)}
                   placeholder="0"
                   aria-label={`Nilai minimum baris ${index + 1}`}
@@ -484,6 +557,7 @@ function SkalaNilaiSection() {
                   type="number"
                   min={0}
                   max={100}
+                  disabled={readOnly}
                   {...form.register(`scales.${index}.max_score`)}
                   placeholder="100"
                   aria-label={`Nilai maksimum baris ${index + 1}`}
@@ -499,6 +573,7 @@ function SkalaNilaiSection() {
 
               <div className="space-y-1">
                 <Input
+                  disabled={readOnly}
                   {...form.register(`scales.${index}.letter`)}
                   placeholder="A"
                   aria-label={`Huruf nilai baris ${index + 1}`}
@@ -512,16 +587,18 @@ function SkalaNilaiSection() {
                 )}
               </div>
 
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="mt-0.5 text-destructive hover:text-destructive"
-                onClick={() => remove(index)}
-                aria-label={`Hapus baris ${index + 1}`}
-              >
-                <Trash2 className="h-4 w-4" aria-hidden="true" />
-              </Button>
+              {!readOnly && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="mt-0.5 text-destructive hover:text-destructive"
+                  onClick={() => remove(index)}
+                  aria-label={`Hapus baris ${index + 1}`}
+                >
+                  <Trash2 className="h-4 w-4" aria-hidden="true" />
+                </Button>
+              )}
             </div>
           ))}
 
@@ -531,19 +608,21 @@ function SkalaNilaiSection() {
             </p>
           )}
 
-          <div className="flex gap-2 pt-2">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => append({ min_score: 0, max_score: 100, letter: '' })}
-            >
-              <Plus className="mr-1.5 h-4 w-4" aria-hidden="true" />
-              Tambah Baris
-            </Button>
-            <Button type="submit" disabled={form.formState.isSubmitting}>
-              {form.formState.isSubmitting ? 'Menyimpan…' : 'Simpan Skala Nilai'}
-            </Button>
-          </div>
+          {!readOnly && (
+            <div className="flex gap-2 pt-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => append({ min_score: 0, max_score: 100, letter: '' })}
+              >
+                <Plus className="mr-1.5 h-4 w-4" aria-hidden="true" />
+                Tambah Baris
+              </Button>
+              <Button type="submit" disabled={form.formState.isSubmitting}>
+                {form.formState.isSubmitting ? 'Menyimpan…' : 'Simpan Skala Nilai'}
+              </Button>
+            </div>
+          )}
         </form>
       </CardContent>
     </Card>
@@ -555,13 +634,15 @@ function SkalaNilaiSection() {
 /**
  * Halaman pengaturan.
  * - Semua peran: Profil Saya
- * - Kepala_Sekolah & Staf_Admin: + Info Sekolah, Tahun Ajaran, Skala Nilai
- * Requirements: 13.1–13.6
+ * - Kepala_Sekolah: + lihat Info Sekolah, Tahun Ajaran, Skala Nilai (read-only)
+ * - Staf_Admin: + kelola Info Sekolah, Tahun Ajaran, Skala Nilai
+ * Requirements: 13.1–13.8
  */
 export default function SettingsPage() {
   const profile = useAuthStore((s) => s.profile)
-  const isAdmin =
+  const canViewSchoolSettings =
     profile?.role === 'Kepala_Sekolah' || profile?.role === 'Staf_Admin'
+  const isReadOnlySchoolSettings = profile?.role !== 'Staf_Admin'
 
   return (
     <div className="space-y-6 p-6">
@@ -572,11 +653,11 @@ export default function SettingsPage() {
 
       <div className="space-y-6">
         <ProfilSection />
-        {isAdmin && (
+        {canViewSchoolSettings && (
           <>
-            <InfoSekolahSection />
-            <TahunAjaranSection />
-            <SkalaNilaiSection />
+            <InfoSekolahSection readOnly={isReadOnlySchoolSettings} />
+            <TahunAjaranSection readOnly={isReadOnlySchoolSettings} />
+            <SkalaNilaiSection readOnly={isReadOnlySchoolSettings} />
           </>
         )}
       </div>
