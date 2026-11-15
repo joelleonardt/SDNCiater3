@@ -1,10 +1,11 @@
-import { NavLink, useNavigate } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard,
   BookOpen,
   CalendarCheck,
   CalendarDays,
   BarChart3,
+  FileText,
   UserCog,
   Settings,
   GraduationCap,
@@ -74,7 +75,7 @@ const NAV_ITEMS: NavItem[] = [
   {
     label: 'Laporan',
     path: '/reports',
-    icon: BarChart3,
+    icon: FileText,
     allowedRoles: ['Guru', 'Kepala_Sekolah', 'Staf_Admin'],
   },
   {
@@ -102,6 +103,7 @@ export default function Sidebar() {
   const profile = useAuthStore((s) => s.profile)
   const { sidebarCollapsed, toggleSidebar } = useUIStore()
   const navigate = useNavigate()
+  const location = useLocation()
 
   const role = profile?.role as Role | undefined
 
@@ -129,14 +131,15 @@ export default function Sidebar() {
         >
           {!sidebarCollapsed && (
             <button
-              className="flex items-center gap-2 rounded-md p-1 hover:bg-accent"
+              className="flex items-center gap-2.5 rounded-md px-1.5 py-1 hover:bg-accent"
               onClick={() => navigate('/dashboard')}
               aria-label="Ke Dashboard"
             >
-              <span className="text-sm font-bold leading-tight text-primary">
-                Sekolah
-                <br />
-                Admin
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+                <GraduationCap className="h-4 w-4" aria-hidden="true" />
+              </div>
+              <span className="text-base font-bold tracking-tight text-primary">
+                Sekolah Admin
               </span>
             </button>
           )}
@@ -155,40 +158,53 @@ export default function Sidebar() {
         </div>
 
         {/* Navigation items */}
-        <nav className="flex-1 overflow-y-auto py-4">
-          <ul role="list" className="space-y-1 px-2">
+        <nav className="flex-1 overflow-y-auto px-3 py-4">
+          <ul role="list" className="space-y-1">
             {visibleItems.map((item) => {
               const Icon = item.icon
+              const isActive =
+                item.path === '/dashboard'
+                  ? location.pathname === '/dashboard'
+                  : location.pathname === item.path ||
+                    location.pathname.startsWith(`${item.path}/`)
+
+              const linkClassName = cn(
+                'flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors',
+                isActive
+                  ? 'border-l-4 border-primary bg-accent pl-2.5 font-semibold text-accent-foreground'
+                  : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground',
+                sidebarCollapsed && 'justify-center px-2 border-l-0'
+              )
+
               return (
                 <li key={item.path}>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <NavLink
-                        to={item.path}
-                        className={({ isActive }) =>
-                          cn(
-                            'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
-                            'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
-                            isActive &&
-                              'border-l-4 border-primary bg-accent pl-2 text-foreground',
-                            sidebarCollapsed && 'justify-center px-2'
-                          )
-                        }
-                        aria-label={item.label}
-                        end={item.path === '/dashboard'}
-                      >
-                        <Icon className="h-5 w-5 shrink-0" aria-hidden="true" />
-                        {!sidebarCollapsed && (
-                          <span className="truncate">{item.label}</span>
-                        )}
-                      </NavLink>
-                    </TooltipTrigger>
-                    {sidebarCollapsed && (
+                  {sidebarCollapsed ? (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Link
+                          to={item.path}
+                          className={linkClassName}
+                          aria-label={item.label}
+                          aria-current={isActive ? 'page' : undefined}
+                        >
+                          <Icon className="h-5 w-5 shrink-0" aria-hidden="true" />
+                        </Link>
+                      </TooltipTrigger>
                       <TooltipContent side="right">
                         <p>{item.label}</p>
                       </TooltipContent>
-                    )}
-                  </Tooltip>
+                    </Tooltip>
+                  ) : (
+                    <Link
+                      to={item.path}
+                      className={linkClassName}
+                      aria-label={item.label}
+                      aria-current={isActive ? 'page' : undefined}
+                    >
+                      <Icon className="h-5 w-5 shrink-0" aria-hidden="true" />
+                      <span className="truncate leading-none">{item.label}</span>
+                    </Link>
+                  )}
                 </li>
               )
             })}

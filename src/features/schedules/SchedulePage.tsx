@@ -12,7 +12,7 @@ import type { Class, Profile } from '@/types/database.types'
 import { useSchedules } from './useSchedules'
 import WeeklyGrid from './WeeklyGrid'
 import ScheduleFormModal, { type JadwalForm } from './ScheduleFormModal'
-import { cn } from '@/lib/utils'
+import { cn, getErrorMessage } from '@/lib/utils'
 import { useToast } from '@/components/ui/Toast/useToast'
 
 // UNIQUE-violation error code dari Postgres / Supabase
@@ -54,7 +54,7 @@ export default function SchedulePage() {
           setSelectedTeacherId(data[0].id)
         }
       })
-      .catch(() => toastError('Gagal memuat daftar guru'))
+      .catch((err) => toastError('Gagal memuat daftar guru', getErrorMessage(err, 'Terjadi kesalahan.')))
 
     // Muat daftar kelas jika ada tahun ajaran aktif
     if (activeAcademicYear?.id) {
@@ -63,7 +63,7 @@ export default function SchedulePage() {
           setClasses(data)
           if (data.length > 0 && !selectedClassId) setSelectedClassId(data[0].id)
         })
-        .catch(() => toastError('Gagal memuat daftar kelas'))
+        .catch((err) => toastError('Gagal memuat daftar kelas', getErrorMessage(err, 'Terjadi kesalahan.')))
     }
   }, [profile?.school_id, activeAcademicYear?.id, isGuru]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -72,7 +72,7 @@ export default function SchedulePage() {
   const activeTeacherFilter = viewMode === 'teacher' ? (isGuru ? profile?.id : selectedTeacherId) : undefined
 
   const { schedules, loading, createSchedule, updateSchedule, deleteSchedule } =
-    useSchedules(activeClassFilter, activeTeacherFilter)
+    useSchedules(activeClassFilter, activeTeacherFilter, isGuru)
 
   // ── Modal tambah/edit ─────────────────────────────────────────────────────
   const [modalOpen, setModalOpen] = React.useState(false)

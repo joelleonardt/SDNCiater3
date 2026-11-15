@@ -16,11 +16,18 @@ function formatTime(time: string): string {
 
 export default function TodaySchedule() {
   const profile = useAuthStore((s) => s.profile)
+  const profileLoading = useAuthStore((s) => s.profileLoading)
   const [items, setItems] = useState<TodayScheduleItem[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    if (!profile?.id || !profile.school_id) return
+    if (!profile?.id || !profile.school_id) {
+      if (!profileLoading) {
+        setItems([])
+        setLoading(false)
+      }
+      return
+    }
 
     const dayOfWeek = getTodayDayOfWeek()
     if (dayOfWeek === 0) {
@@ -30,14 +37,23 @@ export default function TodaySchedule() {
       return
     }
 
+    let cancelled = false
+    setLoading(true)
     getTodaySchedules(profile.school_id, profile.id, profile.role, dayOfWeek)
       .then((data) => {
-        setItems(data)
+        if (!cancelled) setItems(data)
+      })
+      .catch(() => {
+        if (!cancelled) setItems([])
       })
       .finally(() => {
-        setLoading(false)
+        if (!cancelled) setLoading(false)
       })
-  }, [profile?.id, profile?.school_id, profile?.role])
+
+    return () => {
+      cancelled = true
+    }
+  }, [profile?.id, profile?.school_id, profile?.role, profileLoading])
 
   return (
     <div className="rounded-lg border bg-card p-4 shadow-sm">

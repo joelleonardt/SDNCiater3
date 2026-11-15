@@ -1,9 +1,9 @@
 import { useNavigate } from 'react-router-dom'
-import { Menu, Bell, Search, User, LogOut, Sun, Moon, Monitor } from 'lucide-react'
+import { Menu, Bell, Search, User, LogOut, Sun, Moon, Monitor, ShieldCheck, Clock } from 'lucide-react'
 import { useAuthStore } from '@/stores/authStore'
 import { useUIStore } from '@/stores/uiStore'
 import { useAppStore, type Theme } from '@/stores/appStore'
-import { signOut } from '@/services/authService'
+import { requestRoleChange, signOut, type UserRole } from '@/services/authService'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import {
   DropdownMenu,
@@ -37,12 +37,36 @@ interface TopbarProps {
  */
 export default function Topbar({ onMobileMenuToggle, className }: TopbarProps) {
   const profile = useAuthStore((s) => s.profile)
+  const session = useAuthStore((s) => s.session)
+  const refreshProfile = useAuthStore((s) => s.refreshProfile)
   const clearSession = useAuthStore((s) => s.clearSession)
   const pushToast = useUIStore((s) => s.pushToast)
   const toggleSidebar = useUIStore((s) => s.toggleSidebar)
   const theme = useAppStore((s) => s.theme)
   const setTheme = useAppStore((s) => s.setTheme)
   const navigate = useNavigate()
+
+  async function handleRequestRoleChange(nextRole: UserRole) {
+    const userId = profile?.id ?? session?.user?.id
+    if (!userId) return
+    if (profile?.role === nextRole) return
+
+    try {
+      await requestRoleChange(userId, nextRole)
+      await refreshProfile()
+      pushToast({
+        title: 'Permohonan dikirim',
+        description: `Permintaan perubahan peran ke ${nextRole.replace('_', ' ')} menunggu verifikasi di Dashboard Admin.`,
+        variant: 'default',
+      })
+    } catch {
+      pushToast({
+        title: 'Gagal mengirim permohonan',
+        description: 'Terjadi kesalahan saat menyimpan permohonan perubahan peran.',
+        variant: 'destructive',
+      })
+    }
+  }
 
   const themeOptions: { value: Theme; label: string; Icon: React.ComponentType<{ className?: string }> }[] = [
     { value: 'light', label: 'Mode terang', Icon: Sun },
@@ -181,7 +205,7 @@ export default function Topbar({ onMobileMenuToggle, className }: TopbarProps) {
             </Button>
           </DropdownMenuTrigger>
 
-          <DropdownMenuContent align="end" className="w-48">
+          <DropdownMenuContent align="end" className="w-56">
             {/* Profile info header */}
             {profile && (
               <>
@@ -190,8 +214,16 @@ export default function Topbar({ onMobileMenuToggle, className }: TopbarProps) {
                     {profile.full_name}
                   </p>
                   <p className="truncate text-xs text-muted-foreground">
-                    {profile.role.replace('_', ' ')}
+                    Peran aktif: {profile.role.replace('_', ' ')}
                   </p>
+                  {profile.requested_role && profile.requested_role !== profile.role && (
+                    <div className="mt-1.5 flex items-center gap-1.5 rounded bg-amber-100 px-2 py-1 text-[11px] font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-300">
+                      <Clock className="h-3 w-3 shrink-0" aria-hidden="true" />
+                      <span className="truncate">
+                        Menunggu verifikasi: {profile.requested_role.replace('_', ' ')}
+                      </span>
+                    </div>
+                  )}
                 </div>
                 <DropdownMenuSeparator />
               </>
@@ -205,6 +237,34 @@ export default function Topbar({ onMobileMenuToggle, className }: TopbarProps) {
               <User className="h-4 w-4" aria-hidden="true" />
               <span>Profil Saya</span>
             </DropdownMenuItem>
+
+            <DropdownMenuSeparator />
+
+            <div className="px-3 py-1.5 text-xs font-semibold text-muted-foreground">
+              Ajukan Perubahan Peran
+            </div>
+            {(['Guru', 'Kepala_Sekolah', 'Staf_Admin'] as const).map((r) => {
+              const isCurrent = profile?.role === r
+              const isRequested = profile?.requested_role === r && !isCurrent
+              return (
+                <DropdownMenuItem
+                  key={r}
+                  disabled={isCurrent}
+                  onClick={() => void handleRequestRoleChange(r)}
+                  className={cn(
+                    'cursor-pointer gap-2 text-xs',
+                    isCurrent && 'bg-accent font-semibold text-accent-foreground opacity-100',
+                    isRequested && 'text-amber-700 dark:text-amber-300 font-medium'
+                  )}
+                >
+                  <ShieldCheck className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                  <span className="truncate">
+                    {r.replace('_', ' ')}
+                    {isCurrent ? ' (Aktif)' : isRequested ? ' (Menunggu)' : ''}
+                  </span>
+                </DropdownMenuItem>
+              )
+            })}
 
             <DropdownMenuSeparator />
 

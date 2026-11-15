@@ -29,23 +29,21 @@ const STATUS_COLORS: Record<AttendanceStatus, string> = {
  * Requirements: 9.4–9.6
  */
 export default function AttendanceForm({ classId, date, readOnly = false }: AttendanceFormProps) {
-  const { records, loading, saving, setClassId, setDate, updateStatus, save } = useAttendance()
+  const { records, loading, saving, setClassId, setDate, updateStatus, markAllStatus, save } = useAttendance()
 
   // Sinkronkan props ke hook saat pertama kali dan saat berubah
   React.useEffect(() => {
     setClassId(classId)
     setDate(date)
-  }, [classId, date]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [classId, date, setClassId, setDate])
 
   async function handleSave() {
     await save()
   }
 
-  // Tandai semua hadir — update setiap record
+  // Tandai semua hadir sekaligus dalam satu batch update
   function markAllHadir() {
-    records.forEach((r) => {
-      if (r.status !== 'Hadir') updateStatus(r.student_id, 'Hadir')
-    })
+    void markAllStatus('Hadir')
   }
 
   // ── Loading ───────────────────────────────────────────────────────────────

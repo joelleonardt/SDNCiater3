@@ -1,10 +1,14 @@
 import { useState, useEffect, useRef } from 'react'
-import { useLocation } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
+import { AlertTriangle, RefreshCw, LogOut } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useUIStore } from '@/stores/uiStore'
+import { useAuthStore } from '@/stores/authStore'
+import { signOut } from '@/services/authService'
+import { Button } from '@/components/ui/button'
 import Sidebar from './Sidebar'
 import Topbar from './Topbar'
-import { ToastProvider } from './Toast'
+import { ToastProvider, useToast } from './Toast'
 
 interface AppShellProps {
   children: React.ReactNode
@@ -28,10 +32,53 @@ export default function AppShell({ children }: AppShellProps) {
   // sidebarCollapsed is used by Sidebar internally via uiStore; AppShell subscribes
   // so it re-renders when sidebar toggles, keeping the layout in sync.
   useUIStore((s) => s.sidebarCollapsed)
+  const session = useAuthStore((s) => s.session)
+  const profile = useAuthStore((s) => s.profile)
+  const profileLoading = useAuthStore((s) => s.profileLoading)
+  const profileError = useAuthStore((s) => s.profileError)
+  const refreshProfile = useAuthStore((s) => s.refreshProfile)
+  const clearSession = useAuthStore((s) => s.clearSession)
   // Mobile drawer state (terpisah dari sidebarCollapsed yang mengontrol desktop)
   const [mobileOpen, setMobileOpen] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
   const drawerRef = useRef<HTMLDivElement>(null)
   const location = useLocation()
+  const navigate = useNavigate()
+  const { toastSuccess, toastError } = useToast()
+
+  async function handleRefreshProfile() {
+    setRefreshing(true)
+    try {
+      const updatedProfile = await refreshProfile()
+      if (updatedProfile?.school_id) {
+        toastSuccess('Verifikasi berhasil', 'Akun Anda sudah terhubung dengan data sekolah.')
+      } else if (updatedProfile && !updatedProfile.school_id) {
+        toastError(
+          'Akun belum diverifikasi',
+          'Hubungi staf admin untuk melakukan verifikasi terhadap akun Anda.'
+        )
+      } else {
+        toastError(
+          'Gagal memuat ulang profil',
+          'Pastikan data profil tersedia dan kebijakan akses database sudah diperbarui.'
+        )
+      }
+    } finally {
+      setRefreshing(false)
+    }
+  }
+
+  async function handleSignOut() {
+    clearSession()
+    try {
+      await signOut()
+    } catch {
+      // Abaikan error saat keluar paksa
+    }
+    navigate('/login', { replace: true })
+  }
+
+  const showProfileIssue = !profileLoading && !!session && (!profile || !profile.school_id)
 
   // Tutup drawer saat navigasi (Requirements: 3.2)
   useEffect(() => {
@@ -113,6 +160,46 @@ export default function AppShell({ children }: AppShellProps) {
           className="mx-auto w-full max-w-[1920px] flex-1 overflow-y-auto p-4 lg:p-6"
           role="main"
         >
+          {showProfileIssue && (
+            <div
+              role="alert"
+              className="mb-6 rounded-lg border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive"
+            >
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div className="flex items-start gap-3">
+                  <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" aria-hidden="true" />
+                  <div className="space-y-1">
+                    <p className="font-semibold">
+                      {!profile
+                        ? 'Gagal memuat profil pengguna dari database'
+                        : 'Akun belum terhubung dengan data sekolah'}
+                    </p>
+                    <p className="text-xs text-destructive/90">
+                      {profileError ??
+                        (!profile
+                          ? 'Pastikan kebijakan RLS terbaru (supabase/sync_existing_db.sql atau supabase/rls_policies.sql) sudah dijalankan di SQL Editor Supabase dan baris profil pengguna tersedia di tabel public.profiles.'
+                          : 'Hubungi staf admin untuk melakukan verifikasi terhadap akun Anda.')}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex shrink-0 flex-wrap gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={refreshing}
+                    onClick={() => void handleRefreshProfile()}
+                  >
+                    <RefreshCw className={cn('mr-1.5 h-3.5 w-3.5', refreshing && 'animate-spin')} />
+                    {refreshing ? 'Memuat...' : 'Muat Ulang'}
+                  </Button>
+                  <Button variant="destructive" size="sm" onClick={handleSignOut}>
+                    <LogOut className="mr-1.5 h-3.5 w-3.5" />
+                    Keluar
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
           {children}
         </main>
       </div>

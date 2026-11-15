@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useAuthStore } from '@/stores/authStore'
 import { useToast } from '@/components/ui/Toast/useToast'
+import { getErrorMessage } from '@/lib/utils'
 import {
   getSchedulesByClass,
   getSchedulesByTeacher,
@@ -17,7 +18,7 @@ import type { ScheduleInsert, ScheduleUpdate } from '@/types/database.types'
  * - Jika teacherId diberikan: ambil jadwal guru tersebut (Req 8.1, 8.2)
  * - Jika tidak ada: ambil jadwal milik guru yang sedang login
  */
-export function useSchedules(classId?: string, teacherId?: string) {
+export function useSchedules(classId?: string, teacherId?: string, allowSelfFallback = true) {
   const profile = useAuthStore((s) => s.profile)
   const { toastSuccess, toastError } = useToast()
 
@@ -26,8 +27,13 @@ export function useSchedules(classId?: string, teacherId?: string) {
   const [error, setError] = useState<string | null>(null)
 
   const reload = useCallback(async () => {
-    const targetTeacherId = teacherId || (!classId ? profile?.id : undefined)
-    if (!classId && !targetTeacherId) return
+    const targetTeacherId = teacherId || (allowSelfFallback && !classId ? profile?.id : undefined)
+    if (!classId && !targetTeacherId) {
+      setSchedules([])
+      setLoading(false)
+      setError(null)
+      return
+    }
 
     setLoading(true)
     setError(null)
@@ -37,13 +43,13 @@ export function useSchedules(classId?: string, teacherId?: string) {
         : await getSchedulesByTeacher(targetTeacherId!)
       setSchedules(data)
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Gagal memuat jadwal'
+      const msg = getErrorMessage(err, 'Gagal memuat jadwal')
       setError(msg)
-      toastError(msg)
+      toastError('Gagal memuat jadwal', msg)
     } finally {
       setLoading(false)
     }
-  }, [classId, teacherId, profile?.id, toastError])
+  }, [classId, teacherId, allowSelfFallback, profile?.id, toastError])
 
   useEffect(() => {
     reload()
@@ -58,7 +64,7 @@ export function useSchedules(classId?: string, teacherId?: string) {
         return created
       } catch (err) {
         // shortcut: pesan error DB (misal UNIQUE violation) langsung dilempar ke caller
-        const msg = err instanceof Error ? err.message : 'Gagal menambahkan jadwal'
+        const msg = getErrorMessage(err, 'Gagal menambahkan jadwal')
         toastError(msg)
         throw err
       }
@@ -74,7 +80,7 @@ export function useSchedules(classId?: string, teacherId?: string) {
         toastSuccess('Jadwal berhasil diperbarui')
         return updated
       } catch (err) {
-        const msg = err instanceof Error ? err.message : 'Gagal memperbarui jadwal'
+        const msg = getErrorMessage(err, 'Gagal memperbarui jadwal')
         toastError(msg)
         throw err
       }
@@ -89,7 +95,7 @@ export function useSchedules(classId?: string, teacherId?: string) {
         setSchedules((prev) => prev.filter((s) => s.id !== id))
         toastSuccess('Jadwal berhasil dihapus')
       } catch (err) {
-        const msg = err instanceof Error ? err.message : 'Gagal menghapus jadwal'
+        const msg = getErrorMessage(err, 'Gagal menghapus jadwal')
         toastError(msg)
         throw err
       }

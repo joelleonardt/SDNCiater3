@@ -14,20 +14,36 @@ function formatDate(dateStr: string): string {
 
 export default function AnnouncementsPanel() {
   const profile = useAuthStore((s) => s.profile)
+  const profileLoading = useAuthStore((s) => s.profileLoading)
   const [items, setItems] = useState<DashboardNoteItem[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    if (!profile?.school_id) return
+    if (!profile?.school_id) {
+      if (!profileLoading) {
+        setItems([])
+        setLoading(false)
+      }
+      return
+    }
 
+    let cancelled = false
+    setLoading(true)
     getRecentNotesForDashboard(profile.school_id)
       .then((data) => {
-        setItems(data)
+        if (!cancelled) setItems(data)
+      })
+      .catch(() => {
+        if (!cancelled) setItems([])
       })
       .finally(() => {
-        setLoading(false)
+        if (!cancelled) setLoading(false)
       })
-  }, [profile?.school_id])
+
+    return () => {
+      cancelled = true
+    }
+  }, [profile?.school_id, profileLoading])
 
   return (
     <div className="rounded-lg border bg-card p-4 shadow-sm">

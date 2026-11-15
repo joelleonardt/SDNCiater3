@@ -16,7 +16,21 @@ import {
   saveGradeScales as svcSaveGradeScales,
 } from '@/services/settingsService'
 
-export function useSettings() {
+function formatSettingsError(err: unknown, fallback: string): string {
+  const raw = err instanceof Error ? err.message : ''
+  if (raw.toLowerCase().includes('failed to fetch') || raw.toLowerCase().includes('networkerror')) {
+    return 'Koneksi ke server Supabase terputus. Periksa jaringan internet Anda lalu klik Muat Ulang.'
+  }
+  return raw || fallback
+}
+
+export interface UseSettingsOptions {
+  /** Muat data sekolah, tahun ajaran, dan skala nilai (default: true). */
+  fetchSchoolData?: boolean
+}
+
+export function useSettings(options: UseSettingsOptions = {}) {
+  const { fetchSchoolData = true } = options
   const storeProfile = useAuthStore((s) => s.profile)
   const setSession = useAuthStore((s) => s.setSession)
   const session = useAuthStore((s) => s.session)
@@ -32,32 +46,49 @@ export function useSettings() {
   const [academicYears, setAcademicYears] = useState<AcademicYear[]>([])
   const [gradeScales, setGradeScales] = useState<GradeScale[]>([])
   const [loading, setLoading] = useState(false)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [reloadTick, setReloadTick] = useState(0)
+
+  const reload = useCallback(() => {
+    setReloadTick((t) => t + 1)
+  }, [])
 
   // Sinkronisasi profile dari store saat store berubah
   useEffect(() => {
     setProfile(storeProfile)
   }, [storeProfile])
 
-  // Muat data sekolah, tahun ajaran, dan skala nilai saat mount
+  // Muat data sekolah, tahun ajaran, dan skala nilai saat mount / schoolId berubah
   useEffect(() => {
-    if (!schoolId) return
+    if (!schoolId || !fetchSchoolData) return
+    let cancelled = false
     setLoading(true)
+    setLoadError(null)
     Promise.all([
       getSchool(schoolId),
       getAcademicYears(schoolId),
       getGradeScales(schoolId),
     ])
       .then(([schoolData, years, scales]) => {
+        if (cancelled) return
         setSchool(schoolData)
         setAcademicYears(years)
         setGradeScales(scales)
       })
       .catch((err) => {
-        const msg = err instanceof Error ? err.message : 'Gagal memuat pengaturan'
+        if (cancelled) return
+        const msg = formatSettingsError(err, 'Gagal memuat pengaturan')
+        setLoadError(msg)
         toastError('Gagal memuat pengaturan', msg)
       })
-      .finally(() => setLoading(false))
-  }, [schoolId, toastError])
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [schoolId, fetchSchoolData, reloadTick, toastError])
 
   // ─── Profile ───────────────────────────────────────────────────────────────
 
@@ -216,6 +247,8 @@ export function useSettings() {
     academicYears,
     gradeScales,
     loading,
+    loadError,
+    reload,
     updateProfile,
     uploadAvatar,
     updatePassword,

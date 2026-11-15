@@ -4,6 +4,9 @@ import {
   getUsers,
   createUser,
   updateUserRole,
+  rejectUserRoleRequest,
+  verifyUserAccount,
+  rejectUserVerification,
   toggleUserActive,
   type Role,
   type CreateUserInput,
@@ -90,5 +93,71 @@ export function useUsers() {
     [toastSuccess, toastError]
   )
 
-  return { users, loading, error, reload, addUser, updateRole, toggleActive }
+  const rejectRole = useCallback(
+    async (userId: string) => {
+      try {
+        const updated = await rejectUserRoleRequest(userId)
+        setUsers((prev) => prev.map((u) => (u.id === userId ? updated : u)))
+        toastSuccess('Permohonan perubahan peran ditolak')
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Gagal menolak permohonan peran'
+        toastError('Gagal menolak permohonan', msg)
+        throw err
+      }
+    },
+    [toastSuccess, toastError]
+  )
+
+  const verifyUser = useCallback(
+    async (userId: string, approvedRole: Role) => {
+      if (!schoolId) throw new Error('Sekolah belum teridentifikasi')
+      try {
+        const updated = await verifyUserAccount(userId, schoolId, approvedRole)
+        setUsers((prev) => prev.map((u) => (u.id === userId ? updated : u)))
+        toastSuccess('Akun berhasil diverifikasi dan dihubungkan ke sekolah')
+        return updated
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Gagal memverifikasi akun'
+        toastError('Gagal memverifikasi akun', msg)
+        throw err
+      }
+    },
+    [schoolId, toastSuccess, toastError]
+  )
+
+  const rejectVerification = useCallback(
+    async (userId: string, isNewUnlinkedAccount: boolean) => {
+      try {
+        const updated = await rejectUserVerification(userId, isNewUnlinkedAccount)
+        setUsers((prev) =>
+          isNewUnlinkedAccount
+            ? prev.filter((u) => u.id !== userId)
+            : prev.map((u) => (u.id === userId ? updated : u))
+        )
+        toastSuccess(
+          isNewUnlinkedAccount
+            ? 'Pendaftaran akun ditolak dan dinonaktifkan'
+            : 'Permohonan perubahan peran ditolak'
+        )
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Gagal menolak verifikasi akun'
+        toastError('Gagal menolak verifikasi', msg)
+        throw err
+      }
+    },
+    [toastSuccess, toastError]
+  )
+
+  return {
+    users,
+    loading,
+    error,
+    reload,
+    addUser,
+    updateRole,
+    rejectRole,
+    verifyUser,
+    rejectVerification,
+    toggleActive,
+  }
 }

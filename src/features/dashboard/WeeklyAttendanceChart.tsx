@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { getWeeklyAttendanceData, type WeeklyAttendanceDay } from '@/services/dashboardService'
 import { useAuthStore } from '@/stores/authStore'
+import { getErrorMessage } from '@/lib/utils'
 import EmptyState from '@/components/ui/EmptyState'
 import { BarChart2 } from 'lucide-react'
 
@@ -11,31 +12,45 @@ import { BarChart2 } from 'lucide-react'
  */
 export default function WeeklyAttendanceChart() {
   const profile = useAuthStore((s) => s.profile)
+  const profileLoading = useAuthStore((s) => s.profileLoading)
   const [data, setData] = useState<WeeklyAttendanceDay[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    if (!profile?.school_id) return
+    if (!profile?.school_id) {
+      if (!profileLoading) {
+        setData([])
+        setLoading(false)
+      }
+      return
+    }
 
     const schoolId = profile.school_id
+    let cancelled = false
 
     async function ambilData() {
       setLoading(true)
       setError(null)
       try {
         const result = await getWeeklyAttendanceData(schoolId)
-        setData(result)
+        if (!cancelled) setData(result)
       } catch (e) {
-        setError('Gagal memuat data kehadiran.')
+        if (!cancelled) {
+          const detail = getErrorMessage(e, '')
+          setError(detail ? `Gagal memuat data kehadiran: ${detail}` : 'Gagal memuat data kehadiran.')
+        }
         console.error(e)
       } finally {
-        setLoading(false)
+        if (!cancelled) setLoading(false)
       }
     }
 
     ambilData()
-  }, [profile?.school_id])
+    return () => {
+      cancelled = true
+    }
+  }, [profile?.school_id, profileLoading])
 
   // ─── Skeleton ───────────────────────────────────────────────────────────────
   if (loading) {

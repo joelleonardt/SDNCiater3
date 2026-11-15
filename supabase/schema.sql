@@ -39,14 +39,15 @@ CREATE INDEX idx_schools_name ON schools (name);
 --    Bergantung pada: auth.users (built-in), schools
 -- ---------------------------------------------------------------------------
 CREATE TABLE profiles (
-  id          uuid PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
-  school_id   uuid REFERENCES schools(id),
-  full_name   text NOT NULL CHECK (char_length(full_name) BETWEEN 1 AND 100),
-  email       text CHECK (char_length(email) <= 254),
-  role        text NOT NULL CHECK (role IN ('Guru','Kepala_Sekolah','Staf_Admin')),
-  avatar_url  text,
-  is_active   boolean NOT NULL DEFAULT true,
-  created_at  timestamptz NOT NULL DEFAULT now()
+  id             uuid PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+  school_id      uuid REFERENCES schools(id),
+  full_name      text NOT NULL CHECK (char_length(full_name) BETWEEN 1 AND 100),
+  email          text CHECK (char_length(email) <= 254),
+  role           text NOT NULL CHECK (role IN ('Guru','Kepala_Sekolah','Staf_Admin')),
+  requested_role text CHECK (requested_role IN ('Guru','Kepala_Sekolah','Staf_Admin')),
+  avatar_url     text,
+  is_active      boolean NOT NULL DEFAULT true,
+  created_at     timestamptz NOT NULL DEFAULT now()
 );
 
 ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
@@ -318,20 +319,72 @@ RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public
+SET row_security = off
 AS $$
+DECLARE
+  target_school_id uuid;
+  target_role text;
+  req_role text;
+  has_admin boolean;
 BEGIN
-  INSERT INTO public.profiles (id, school_id, full_name, email, role, is_active)
+  req_role := NULLIF(new.raw_user_meta_data->>'requested_role', '');
+  IF req_role NOT IN ('Guru', 'Kepala_Sekolah', 'Staf_Admin') THEN
+    req_role := NULL;
+  END IF;
+
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.profiles
+    WHERE role = 'Staf_Admin'
+      AND is_active = true
+      AND school_id IS NOT NULL
+  ) INTO has_admin;
+
+  -- Bootstrap akun pertama sistem jika belum ada Staf_Admin aktif yang terhubung ke sekolah.
+  -- Untuk semua pendaftaran setelahnya, biarkan school_id = NULL dan kunci role = 'Guru'
+  -- agar wajib diverifikasi oleh Staf_Admin melalui Dashboard Admin / halaman Pengguna.
+  IF NOT has_admin THEN
+    SELECT id INTO target_school_id FROM public.schools ORDER BY created_at ASC LIMIT 1;
+
+    IF target_school_id IS NULL THEN
+      INSERT INTO public.schools (id, name, address, principal_name)
+      VALUES (
+        '11111111-1111-1111-1111-111111111111',
+        'SDN 1 Nusantara',
+        'Jl. Pendidikan No. 1, Jakarta Pusat',
+        'Drs. Hendra Wijaya, M.Pd.'
+      )
+      ON CONFLICT (id) DO NOTHING
+      RETURNING id INTO target_school_id;
+
+      IF target_school_id IS NULL THEN
+        SELECT id INTO target_school_id FROM public.schools ORDER BY created_at ASC LIMIT 1;
+      END IF;
+    END IF;
+
+    target_role := 'Staf_Admin';
+    req_role := NULL;
+  ELSE
+    target_school_id := NULL;
+    target_role := 'Guru';
+    req_role := COALESCE(req_role, 'Guru');
+  END IF;
+
+  INSERT INTO public.profiles (id, school_id, full_name, email, role, requested_role, is_active)
   VALUES (
     new.id,
-    (new.raw_user_meta_data->>'school_id')::uuid,
-    COALESCE(new.raw_user_meta_data->>'full_name', new.email),
+    target_school_id,
+    COALESCE(NULLIF(new.raw_user_meta_data->>'full_name', ''), split_part(new.email, '@', 1), 'Pengguna'),
     new.email,
-    COALESCE(new.raw_user_meta_data->>'role', 'Guru'),
+    target_role,
+    req_role,
     true
   )
   ON CONFLICT (id) DO UPDATE SET
+    school_id = COALESCE(public.profiles.school_id, EXCLUDED.school_id),
     email = EXCLUDED.email,
-    full_name = EXCLUDED.full_name;
+    full_name = EXCLUDED.full_name,
+    requested_role = COALESCE(public.profiles.requested_role, EXCLUDED.requested_role);
   RETURN new;
 END;
 $$;

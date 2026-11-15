@@ -1,5 +1,6 @@
 import PageHeader from '@/components/ui/PageHeader'
 import AnnouncementsPanel from './AnnouncementsPanel'
+import RoleVerificationPanel from './RoleVerificationPanel'
 import SummaryCards from './SummaryCards'
 import TodaySchedule from './TodaySchedule'
 import WeeklyAttendanceChart from './WeeklyAttendanceChart'
@@ -11,6 +12,9 @@ export default function DashboardPage() {
   return (
     <div className="space-y-6 p-6">
       <PageHeader title={pageTitle} />
+
+      {/* Panel verifikasi perubahan peran (tampil jika ada pengajuan peran) */}
+      <RoleVerificationPanel />
 
       {/* Baris 1: Kartu ringkasan (full width) */}
       <SummaryCards />

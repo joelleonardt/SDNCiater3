@@ -1,3 +1,4 @@
+import { useCallback, useMemo } from 'react'
 import { useUIStore, type ToastInput } from '@/stores/uiStore'
 
 /**
@@ -26,24 +27,36 @@ export function useToast() {
    * Tampilkan toast sukses.
    * Auto-dismiss setelah 4 detik. Ikon CheckCircle hijau. (Requirements 14.1, 14.9)
    */
-  function toastSuccess(title: string, description?: string) {
-    pushToast({ title, description, variant: 'success' })
-  }
+  const toastSuccess = useCallback(
+    (title: string, description?: string) => {
+      pushToast({ title, description, variant: 'success' })
+    },
+    [pushToast]
+  )
 
   /**
    * Tampilkan toast error.
    * Persist sampai user close. Ikon XCircle merah. (Requirements 14.2, 14.9)
    */
-  function toastError(title: string, description?: string) {
-    pushToast({ title, description, variant: 'destructive' })
-  }
+  const toastError = useCallback(
+    (title: string, description?: string) => {
+      pushToast({ title, description, variant: 'destructive' })
+    },
+    [pushToast]
+  )
 
   /**
    * Tampilkan toast kustom dengan konfigurasi penuh.
    */
-  function toast(input: ToastInput) {
-    pushToast(input)
-  }
+  const toast = useCallback(
+    (input: ToastInput) => {
+      pushToast(input)
+    },
+    [pushToast]
+  )
 
-  return { toast, toastSuccess, toastError, dismissToast }
+  return useMemo(
+    () => ({ toast, toastSuccess, toastError, dismissToast }),
+    [toast, toastSuccess, toastError, dismissToast]
+  )
 }

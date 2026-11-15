@@ -105,4 +105,5 @@ Variabel lingkungan menyimpan kredensial Supabase dan **tidak boleh** di-commit 
 - File `.env` **tidak boleh** di-commit ke version control. File `.env.example` yang berisi placeholder (tanpa nilai) boleh di-commit sebagai referensi.
 - Untuk menjalankan tests: `npm run test`
 - Untuk build production: `npm run build`
-- Jika ada perubahan schema database, jalankan ulang `supabase/schema.sql` dan `supabase/rls_policies.sql` di SQL Editor.
+- Untuk project Supabase baru, jalankan `supabase/schema.sql` lalu `supabase/rls_policies.sql` di SQL Editor.
+- Jika database sudah dibuat sebelumnya dan ingin memperbarui schema tanpa error `already exists`, jalankan `supabase/sync_existing_db.sql` lalu jalankan `supabase/rls_policies.sql` di SQL Editor.

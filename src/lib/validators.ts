@@ -58,7 +58,7 @@ export const academicYearSchema = z
 
 export type AcademicYearFormValues = z.infer<typeof academicYearSchema>
 
-// ─── Login schema ──────────────────────────────────────────────────────────
+// ─── Login & Register schema ───────────────────────────────────────────────
 
 export const loginSchema = z.object({
   email: z.string().email('Format email tidak valid'),
@@ -66,3 +66,27 @@ export const loginSchema = z.object({
 })
 
 export type LoginFormValues = z.infer<typeof loginSchema>
+
+export const registerSchema = z
+  .object({
+    full_name: z
+      .string()
+      .trim()
+      .min(2, 'Nama lengkap minimal 2 karakter')
+      .max(100, 'Nama lengkap maksimal 100 karakter'),
+    email: z.string().trim().email('Format email tidak valid'),
+    role: z.enum(['Guru', 'Kepala_Sekolah', 'Staf_Admin'], {
+      errorMap: () => ({ message: 'Peran tidak valid' }),
+    }),
+    password: z
+      .string()
+      .min(8, 'Kata sandi minimal 8 karakter')
+      .max(72, 'Kata sandi maksimal 72 karakter'),
+    confirmPassword: z.string().min(1, 'Konfirmasi kata sandi wajib diisi'),
+  })
+  .refine((data) => data.password === data.confirmPassword, {
+    message: 'Konfirmasi kata sandi tidak cocok',
+    path: ['confirmPassword'],
+  })
+
+export type RegisterFormValues = z.infer<typeof registerSchema>

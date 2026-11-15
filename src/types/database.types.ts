@@ -13,6 +13,7 @@ export type Database = {
           full_name: string
           email: string | null
           role: 'Guru' | 'Kepala_Sekolah' | 'Staf_Admin'
+          requested_role?: 'Guru' | 'Kepala_Sekolah' | 'Staf_Admin' | null
           avatar_url: string | null
           is_active: boolean
           created_at: string
@@ -23,6 +24,7 @@ export type Database = {
           full_name: string
           email?: string | null
           role: 'Guru' | 'Kepala_Sekolah' | 'Staf_Admin'
+          requested_role?: 'Guru' | 'Kepala_Sekolah' | 'Staf_Admin' | null
           avatar_url?: string | null
           is_active?: boolean
           created_at?: string
@@ -33,6 +35,7 @@ export type Database = {
           full_name?: string
           email?: string | null
           role?: 'Guru' | 'Kepala_Sekolah' | 'Staf_Admin'
+          requested_role?: 'Guru' | 'Kepala_Sekolah' | 'Staf_Admin' | null
           avatar_url?: string | null
           is_active?: boolean
           created_at?: string

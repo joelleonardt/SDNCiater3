@@ -7,6 +7,10 @@ import { getProfile } from '@/services/authService'
 interface AuthState {
   session: Session | null
   profile: Profile | null
+  /** True saat proses initial auth / pengambilan profil sedang berlangsung */
+  profileLoading: boolean
+  /** Pesan error jika pengambilan profil gagal (mis. RLS 500 atau profil belum dibuat) */
+  profileError: string | null
   /**
    * Bernilai true ketika sesi berakhir karena token refresh gagal (kadaluarsa),
    * bukan karena pengguna sengaja logout.
@@ -23,6 +27,9 @@ interface AuthState {
   /** Reset flag sessionExpired setelah redirect ke halaman login */
   resetSessionExpired: () => void
 
+  /** Muat ulang profil pengguna saat ini dari Supabase */
+  refreshProfile: () => Promise<Profile | null>
+
   /**
    * Inisialisasi auth listener.
    * Panggil sekali saat aplikasi mount (di providers.tsx).
@@ -31,16 +38,81 @@ interface AuthState {
   initializeAuth: () => () => void
 }
 
+function extractProfileError(err: unknown): string {
+  const code =
+    err && typeof err === 'object' && 'code' in err && (err as { code: unknown }).code
+      ? String((err as { code: unknown }).code)
+      : ''
+  const rawMsg =
+    err && typeof err === 'object' && 'message' in err
+      ? String((err as { message: unknown }).message)
+      : ''
+  const userMsg =
+    err && typeof err === 'object' && 'userMessage' in err
+      ? String((err as { userMessage: unknown }).userMessage)
+      : 'Gagal memuat profil pengguna.'
+  const detail = [code ? `[${code}]` : '', rawMsg && rawMsg !== userMsg ? rawMsg : '']
+    .filter(Boolean)
+    .join(' ')
+  return detail ? `${userMsg} (${detail})` : userMsg
+}
+
+let inflightProfileRequest: { userId: string; promise: Promise<Profile> } | null = null
+
+function fetchProfileDeduped(userId: string): Promise<Profile> {
+  if (inflightProfileRequest && inflightProfileRequest.userId === userId) {
+    return inflightProfileRequest.promise
+  }
+  const promise = getProfile(userId).finally(() => {
+    if (inflightProfileRequest?.promise === promise) {
+      inflightProfileRequest = null
+    }
+  })
+  inflightProfileRequest = { userId, promise }
+  return promise
+}
+
 export const useAuthStore = create<AuthState>((set, get) => ({
   session: null,
   profile: null,
+  profileLoading: true,
+  profileError: null,
   sessionExpired: false,
 
-  setSession: (session, profile) => set({ session, profile }),
+  setSession: (session, profile) =>
+    set({ session, profile, profileLoading: false, profileError: null }),
 
-  clearSession: () => set({ session: null, profile: null, sessionExpired: false }),
+  clearSession: () =>
+    set({
+      session: null,
+      profile: null,
+      profileLoading: false,
+      profileError: null,
+      sessionExpired: false,
+    }),
 
   resetSessionExpired: () => set({ sessionExpired: false }),
+
+  refreshProfile: async () => {
+    const currentSession = get().session
+    if (!currentSession?.user?.id) {
+      set({ profileLoading: false })
+      return null
+    }
+    set({ profileLoading: true, profileError: null })
+    try {
+      const profile = await fetchProfileDeduped(currentSession.user.id)
+      set({ profile, profileLoading: false, profileError: null })
+      return profile
+    } catch (err) {
+      set({
+        profile: null,
+        profileLoading: false,
+        profileError: extractProfileError(err),
+      })
+      return null
+    }
+  },
 
   initializeAuth: () => {
     const {
@@ -57,20 +129,34 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         set({
           session: null,
           profile: null,
+          profileLoading: false,
+          profileError: null,
           sessionExpired: hadActiveSession && !isManualLogout,
         })
         return
       }
 
-      // Untuk SIGNED_IN, TOKEN_REFRESHED, USER_UPDATED, dsb.
+      // Untuk SIGNED_IN, TOKEN_REFRESHED, INITIAL_SESSION, USER_UPDATED, dsb.
       if (session) {
+        const existingProfile = get().profile
+        if (existingProfile?.id === session.user.id && event === 'TOKEN_REFRESHED') {
+          set({ session, profileLoading: false, sessionExpired: false })
+          return
+        }
+
+        set({ session, profileLoading: true, profileError: null, sessionExpired: false })
         try {
-          const profile = await getProfile(session.user.id)
-          set({ session, profile, sessionExpired: false })
-        } catch {
-          // Profil tidak dapat dimuat — simpan sesi saja tanpa profil
-          // agar ProtectedRoute tetap berfungsi; profil null akan ditangani UI
-          set({ session, profile: null, sessionExpired: false })
+          const profile = await fetchProfileDeduped(session.user.id)
+          set({ session, profile, profileLoading: false, profileError: null, sessionExpired: false })
+        } catch (err) {
+          // Profil tidak dapat dimuat — simpan error agar UI dapat menampilkan diagnostik yang jelas
+          set({
+            session,
+            profile: null,
+            profileLoading: false,
+            profileError: extractProfileError(err),
+            sessionExpired: false,
+          })
         }
       }
     })

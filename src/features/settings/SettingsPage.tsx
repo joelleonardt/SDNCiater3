@@ -2,10 +2,11 @@ import * as React from 'react'
 import { useForm, useFieldArray } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { Trash2, Plus, CheckCircle, Upload } from 'lucide-react'
+import { Trash2, Plus, CheckCircle, Upload, RefreshCw } from 'lucide-react'
 import { useAuthStore } from '@/stores/authStore'
 import { academicYearSchema } from '@/lib/validators'
 import { validateAvatarFile, validateGradeScales } from '@/services/settingsService'
+import type { Profile, School, AcademicYear, GradeScale } from '@/types/database.types'
 import PageHeader from '@/components/ui/PageHeader'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -71,22 +72,33 @@ type GradeScalesValues = z.infer<typeof gradeScalesSchema>
 
 // ─── Section: Profil Saya ─────────────────────────────────────────────────────
 
-function ProfilSection() {
-  const {
-    profile,
-    updateProfile,
-    uploadAvatar,
-    updatePassword,
-  } = useSettings()
+interface ProfilSectionProps {
+  profile: Profile | null
+  updateProfile: (data: { full_name?: string; avatar_url?: string }) => Promise<void>
+  uploadAvatar: (file: File) => Promise<string>
+  updatePassword: (newPassword: string) => Promise<void>
+}
+
+function ProfilSection({
+  profile,
+  updateProfile,
+  uploadAvatar,
+  updatePassword,
+}: ProfilSectionProps) {
   const [avatarError, setAvatarError] = React.useState<string | null>(null)
   const [uploadingAvatar, setUploadingAvatar] = React.useState(false)
 
-  const profileForm = useForm<ProfileValues>({
-    resolver: zodResolver(profileSchema),
-    values: {
+  const profileValues = React.useMemo<ProfileValues>(
+    () => ({
       full_name: profile?.full_name ?? '',
       avatar_url: profile?.avatar_url ?? '',
-    },
+    }),
+    [profile?.full_name, profile?.avatar_url],
+  )
+
+  const profileForm = useForm<ProfileValues>({
+    resolver: zodResolver(profileSchema),
+    values: profileValues,
   })
 
   const passwordForm = useForm<PasswordValues>({
@@ -263,16 +275,25 @@ function ProfilSection() {
 
 // ─── Section: Info Sekolah ────────────────────────────────────────────────────
 
-function InfoSekolahSection({ readOnly }: { readOnly: boolean }) {
-  const { school, updateSchool } = useSettings()
+interface InfoSekolahSectionProps {
+  readOnly: boolean
+  school: School | null
+  updateSchool: (data: { name?: string; address?: string; principal_name?: string }) => Promise<void>
+}
 
-  const form = useForm<SchoolValues>({
-    resolver: zodResolver(schoolSchema),
-    values: {
+function InfoSekolahSection({ readOnly, school, updateSchool }: InfoSekolahSectionProps) {
+  const schoolValues = React.useMemo<SchoolValues>(
+    () => ({
       name: school?.name ?? '',
       address: school?.address ?? '',
       principal_name: school?.principal_name ?? '',
-    },
+    }),
+    [school?.name, school?.address, school?.principal_name],
+  )
+
+  const form = useForm<SchoolValues>({
+    resolver: zodResolver(schoolSchema),
+    values: schoolValues,
   })
 
   async function handleSubmit(values: SchoolValues) {
@@ -358,8 +379,19 @@ function InfoSekolahSection({ readOnly }: { readOnly: boolean }) {
 
 // ─── Section: Tahun Ajaran ────────────────────────────────────────────────────
 
-function TahunAjaranSection({ readOnly }: { readOnly: boolean }) {
-  const { academicYears, createAcademicYear, setActiveAcademicYear } = useSettings()
+interface TahunAjaranSectionProps {
+  readOnly: boolean
+  academicYears: AcademicYear[]
+  createAcademicYear: (name: string) => Promise<void>
+  setActiveAcademicYear: (academicYearId: string) => Promise<void>
+}
+
+function TahunAjaranSection({
+  readOnly,
+  academicYears,
+  createAcademicYear,
+  setActiveAcademicYear,
+}: TahunAjaranSectionProps) {
   const [activating, setActivating] = React.useState<string | null>(null)
 
   const form = useForm<AcademicYearValues>({
@@ -464,20 +496,30 @@ function TahunAjaranSection({ readOnly }: { readOnly: boolean }) {
 
 // ─── Section: Skala Nilai ─────────────────────────────────────────────────────
 
-function SkalaNilaiSection({ readOnly }: { readOnly: boolean }) {
-  const { gradeScales, saveGradeScales } = useSettings()
+interface SkalaNilaiSectionProps {
+  readOnly: boolean
+  gradeScales: GradeScale[]
+  saveGradeScales: (scales: { min_score: number; max_score: number; letter: string }[]) => Promise<void>
+}
+
+function SkalaNilaiSection({ readOnly, gradeScales, saveGradeScales }: SkalaNilaiSectionProps) {
   const [scaleError, setScaleError] = React.useState<string | null>(null)
 
-  const form = useForm<GradeScalesValues>({
-    resolver: zodResolver(gradeScalesSchema),
-    values: {
+  const scaleValues = React.useMemo<GradeScalesValues>(
+    () => ({
       scales: gradeScales.map((s) => ({
         id: s.id,
         min_score: s.min_score,
         max_score: s.max_score,
         letter: s.letter,
       })),
-    },
+    }),
+    [gradeScales],
+  )
+
+  const form = useForm<GradeScalesValues>({
+    resolver: zodResolver(gradeScalesSchema),
+    values: scaleValues,
   })
 
   const { fields, append, remove } = useFieldArray({
@@ -639,10 +681,27 @@ function SkalaNilaiSection({ readOnly }: { readOnly: boolean }) {
  * Requirements: 13.1–13.8
  */
 export default function SettingsPage() {
-  const profile = useAuthStore((s) => s.profile)
+  const authProfile = useAuthStore((s) => s.profile)
   const canViewSchoolSettings =
-    profile?.role === 'Kepala_Sekolah' || profile?.role === 'Staf_Admin'
-  const isReadOnlySchoolSettings = profile?.role !== 'Staf_Admin'
+    authProfile?.role === 'Kepala_Sekolah' || authProfile?.role === 'Staf_Admin'
+  const isReadOnlySchoolSettings = authProfile?.role !== 'Staf_Admin'
+
+  const {
+    profile,
+    school,
+    academicYears,
+    gradeScales,
+    loading,
+    loadError,
+    reload,
+    updateProfile,
+    uploadAvatar,
+    updatePassword,
+    updateSchool,
+    createAcademicYear,
+    setActiveAcademicYear,
+    saveGradeScales,
+  } = useSettings({ fetchSchoolData: canViewSchoolSettings })
 
   return (
     <div className="space-y-6 p-6">
@@ -651,13 +710,49 @@ export default function SettingsPage() {
         description="Kelola profil, informasi sekolah, dan konfigurasi sistem"
       />
 
+      {loadError && (
+        <div
+          role="alert"
+          className="flex flex-col gap-3 rounded-lg border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive sm:flex-row sm:items-center sm:justify-between"
+        >
+          <span>{loadError}</span>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={loading}
+            onClick={reload}
+          >
+            <RefreshCw className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" />
+            Muat Ulang
+          </Button>
+        </div>
+      )}
+
       <div className="space-y-6">
-        <ProfilSection />
+        <ProfilSection
+          profile={profile}
+          updateProfile={updateProfile}
+          uploadAvatar={uploadAvatar}
+          updatePassword={updatePassword}
+        />
         {canViewSchoolSettings && (
           <>
-            <InfoSekolahSection readOnly={isReadOnlySchoolSettings} />
-            <TahunAjaranSection readOnly={isReadOnlySchoolSettings} />
-            <SkalaNilaiSection readOnly={isReadOnlySchoolSettings} />
+            <InfoSekolahSection
+              readOnly={isReadOnlySchoolSettings}
+              school={school}
+              updateSchool={updateSchool}
+            />
+            <TahunAjaranSection
+              readOnly={isReadOnlySchoolSettings}
+              academicYears={academicYears}
+              createAcademicYear={createAcademicYear}
+              setActiveAcademicYear={setActiveAcademicYear}
+            />
+            <SkalaNilaiSection
+              readOnly={isReadOnlySchoolSettings}
+              gradeScales={gradeScales}
+              saveGradeScales={saveGradeScales}
+            />
           </>
         )}
       </div>

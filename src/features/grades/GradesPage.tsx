@@ -3,6 +3,7 @@ import { useAuthStore } from '@/stores/authStore'
 import { useAppStore } from '@/stores/appStore'
 import { useToast } from '@/components/ui/Toast/useToast'
 import { getClasses } from '@/services/classService'
+import { getErrorMessage } from '@/lib/utils'
 import { getSemestersByAcademicYear, getGradeScales } from '@/services/settingsService'
 import { useGrades } from './useGrades'
 import PageHeader from '@/components/ui/PageHeader'
@@ -43,7 +44,7 @@ export default function GradesPage() {
     }
     getClasses(profile.school_id, activeAcademicYear.id)
       .then(setClasses)
-      .catch(() => toastError('Gagal memuat daftar kelas'))
+      .catch((err) => toastError('Gagal memuat daftar kelas', getErrorMessage(err, 'Terjadi kesalahan.')))
   }, [profile?.school_id, activeAcademicYear?.id, toastError])
 
   // Muat semester saat tahun ajaran aktif berubah
@@ -58,7 +59,7 @@ export default function GradesPage() {
         setSemesters(list)
         if (list.length > 0 && !semesterId) setSemesterId(list[0].id)
       })
-      .catch(() => toastError('Gagal memuat daftar semester'))
+      .catch((err) => toastError('Gagal memuat daftar semester', getErrorMessage(err, 'Terjadi kesalahan.')))
   }, [activeAcademicYear?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Data nilai ────────────────────────────────────────────────────────────

@@ -1,22 +1,35 @@
 -- =============================================================================
--- Sekolah Admin — Row Level Security (RLS) Policies
+-- Sekolah Admin — Row Level Security (RLS) Policies (Idempoten & Non-Rekursif)
 -- =============================================================================
 -- Deskripsi : RLS policies untuk tiga peran: Guru, Kepala_Sekolah, Staf_Admin.
---             RLS sudah diaktifkan di schema.sql (ALTER TABLE ... ENABLE ROW LEVEL SECURITY).
---             File ini hanya berisi CREATE POLICY statements.
+--             Aman dijalankan berulang kali (otomatis menghapus policy lama
+--             sebelum membuat policy baru) dan bebas infinite recursion karena
+--             menggunakan helper SECURITY DEFINER.
 --
--- Peran     :
---   Guru          — akses penuh ke baris yang terkait dengan kelas yang diajarnya
---                   (via homeroom_teacher_id ATAU schedules.teacher_id)
---   Kepala_Sekolah — SELECT semua baris di sekolahnya sendiri (school_id cocok)
---   Staf_Admin    — SELECT/INSERT/UPDATE/DELETE semua baris di sekolahnya sendiri
---
--- Cara pakai: Jalankan file ini setelah schema.sql di Supabase SQL Editor / CLI.
---
--- Tabel     : schools, profiles, academic_years, semesters, classes,
---             students, class_students, attendance, schedules, notes,
---             grade_components, grades, grade_scales
+-- Cara pakai: Jalankan seluruh file ini di Supabase SQL Editor.
 -- =============================================================================
+
+-- ---------------------------------------------------------------------------
+-- 0. Bersihkan seluruh policy lama di 13 tabel agar idempoten
+-- ---------------------------------------------------------------------------
+DO $$
+DECLARE
+  pol record;
+BEGIN
+  FOR pol IN
+    SELECT schemaname, tablename, policyname
+    FROM pg_policies
+    WHERE schemaname = 'public'
+      AND tablename IN (
+        'schools', 'profiles', 'academic_years', 'semesters', 'classes',
+        'students', 'class_students', 'attendance', 'schedules', 'notes',
+        'grade_components', 'grades', 'grade_scales'
+      )
+  LOOP
+    EXECUTE format('DROP POLICY IF EXISTS %I ON %I.%I;', pol.policyname, pol.schemaname, pol.tablename);
+  END LOOP;
+END $$;
+
 
 -- ---------------------------------------------------------------------------
 -- Helper SECURITY DEFINER functions (mencegah infinite recursion pada RLS
@@ -28,6 +41,7 @@ LANGUAGE sql
 STABLE
 SECURITY DEFINER
 SET search_path = public
+SET row_security = off
 AS $$
   SELECT school_id FROM public.profiles WHERE id = (SELECT auth.uid());
 $$;
@@ -38,6 +52,7 @@ LANGUAGE sql
 STABLE
 SECURITY DEFINER
 SET search_path = public
+SET row_security = off
 AS $$
   SELECT role FROM public.profiles WHERE id = (SELECT auth.uid());
 $$;
@@ -48,6 +63,7 @@ LANGUAGE sql
 STABLE
 SECURITY DEFINER
 SET search_path = public
+SET row_security = off
 AS $$
   SELECT EXISTS (
     SELECT 1 FROM public.classes c
@@ -63,28 +79,106 @@ AS $$
   );
 $$;
 
+CREATE OR REPLACE FUNCTION public.get_my_is_active()
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+SET row_security = off
+AS $$
+  SELECT is_active FROM public.profiles WHERE id = (SELECT auth.uid());
+$$;
+
+GRANT EXECUTE ON FUNCTION public.get_my_school_id() TO authenticated, anon, service_role;
+GRANT EXECUTE ON FUNCTION public.get_my_role() TO authenticated, anon, service_role;
+GRANT EXECUTE ON FUNCTION public.get_my_is_active() TO authenticated, anon, service_role;
+GRANT EXECUTE ON FUNCTION public.is_guru_of_class(uuid) TO authenticated, anon, service_role;
+
+-- Pastikan kolom email & requested_role tersedia dan data sekolah default terinisialisasi
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS email text;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS requested_role text;
+
+CREATE OR REPLACE FUNCTION public.bootstrap_school_and_profile(p_requested_role text DEFAULT NULL)
+RETURNS SETOF public.profiles
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+SET row_security = off
+AS $$
+DECLARE
+  v_user_id uuid := auth.uid();
+  v_school_id uuid;
+  v_has_admin boolean;
+BEGIN
+  IF v_user_id IS NULL THEN
+    RAISE EXCEPTION 'Not authenticated';
+  END IF;
+
+  SELECT EXISTS (
+    SELECT 1 FROM public.profiles
+    WHERE role = 'Staf_Admin' AND is_active = true AND school_id IS NOT NULL
+  ) INTO v_has_admin;
+
+  IF NOT v_has_admin THEN
+    SELECT id INTO v_school_id FROM public.schools ORDER BY created_at ASC LIMIT 1;
+
+    IF v_school_id IS NULL THEN
+      INSERT INTO public.schools (id, name, address, principal_name)
+      VALUES (
+        '11111111-1111-1111-1111-111111111111',
+        'SDN 1 Nusantara',
+        'Jl. Pendidikan No. 1, Jakarta Pusat',
+        'Drs. Hendra Wijaya, M.Pd.'
+      )
+      ON CONFLICT (id) DO NOTHING
+      RETURNING id INTO v_school_id;
+
+      IF v_school_id IS NULL THEN
+        SELECT id INTO v_school_id FROM public.schools ORDER BY created_at ASC LIMIT 1;
+      END IF;
+    END IF;
+
+    UPDATE public.profiles
+    SET
+      school_id = COALESCE(school_id, v_school_id),
+      role = 'Staf_Admin',
+      requested_role = NULL
+    WHERE id = v_user_id;
+  ELSE
+    UPDATE public.profiles
+    SET
+      requested_role = CASE
+        WHEN p_requested_role IN ('Guru', 'Kepala_Sekolah', 'Staf_Admin') AND p_requested_role <> role
+          THEN p_requested_role
+        ELSE requested_role
+      END
+    WHERE id = v_user_id;
+  END IF;
+
+  RETURN QUERY SELECT * FROM public.profiles WHERE id = v_user_id;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.bootstrap_school_and_profile(text) TO authenticated, service_role;
+
 
 -- =============================================================================
 -- 1. schools
 -- =============================================================================
 
--- Guru: tidak punya akses langsung ke tabel schools (tidak ada school_id di baris
---        yang "dimiliki" guru). Guru membaca school melalui join implisit di UI.
---        Namun agar query JOIN tidak error, berikan SELECT ke baris sekolah mereka.
 CREATE POLICY "guru_schools_select" ON schools
   FOR SELECT
   USING (
     id = public.get_my_school_id() AND public.get_my_role() = 'Guru'
   );
 
--- Kepala_Sekolah: SELECT sekolah miliknya
 CREATE POLICY "kepsek_schools_select" ON schools
   FOR SELECT
   USING (
     id = public.get_my_school_id() AND public.get_my_role() = 'Kepala_Sekolah'
   );
 
--- Staf_Admin: full access ke sekolah miliknya
 CREATE POLICY "admin_schools_select" ON schools
   FOR SELECT
   USING (
@@ -117,20 +211,27 @@ CREATE POLICY "admin_schools_delete" ON schools
 -- 2. profiles
 -- =============================================================================
 
--- Guru: SELECT profil mereka sendiri + profil di sekolah yang sama
---       (dibutuhkan untuk menampilkan nama guru lain di jadwal, dsb.)
+-- Semua pengguna selalu boleh membaca & mengedit profil dirinya sendiri
+CREATE POLICY "self_profiles_select" ON profiles
+  FOR SELECT
+  USING (id = (SELECT auth.uid()));
+
+CREATE POLICY "self_profiles_update" ON profiles
+  FOR UPDATE
+  USING (id = (SELECT auth.uid()))
+  WITH CHECK (
+    id = (SELECT auth.uid())
+    AND role = public.get_my_role()
+    AND school_id IS NOT DISTINCT FROM public.get_my_school_id()
+    AND is_active IS NOT DISTINCT FROM public.get_my_is_active()
+  );
+
+-- Guru: SELECT profil rekan di sekolah yang sama
 CREATE POLICY "guru_profiles_select" ON profiles
   FOR SELECT
   USING (
-    id = (SELECT auth.uid())
-    OR (school_id = public.get_my_school_id() AND public.get_my_role() = 'Guru')
+    school_id = public.get_my_school_id() AND public.get_my_role() = 'Guru'
   );
-
--- Guru: UPDATE hanya profil diri sendiri
-CREATE POLICY "guru_profiles_update_self" ON profiles
-  FOR UPDATE
-  USING (id = (SELECT auth.uid()))
-  WITH CHECK (id = (SELECT auth.uid()));
 
 -- Kepala_Sekolah: SELECT semua profil di sekolahnya
 CREATE POLICY "kepsek_profiles_select" ON profiles
@@ -139,11 +240,12 @@ CREATE POLICY "kepsek_profiles_select" ON profiles
     school_id = public.get_my_school_id() AND public.get_my_role() = 'Kepala_Sekolah'
   );
 
--- Staf_Admin: full access ke profil di sekolahnya
+-- Staf_Admin: full access ke profil di sekolahnya maupun akun baru (school_id IS NULL) untuk verifikasi
 CREATE POLICY "admin_profiles_select" ON profiles
   FOR SELECT
   USING (
-    school_id = public.get_my_school_id() AND public.get_my_role() = 'Staf_Admin'
+    (school_id = public.get_my_school_id() OR school_id IS NULL)
+    AND public.get_my_role() = 'Staf_Admin'
   );
 
 CREATE POLICY "admin_profiles_insert" ON profiles
@@ -155,16 +257,19 @@ CREATE POLICY "admin_profiles_insert" ON profiles
 CREATE POLICY "admin_profiles_update" ON profiles
   FOR UPDATE
   USING (
-    school_id = public.get_my_school_id() AND public.get_my_role() = 'Staf_Admin'
+    (school_id = public.get_my_school_id() OR school_id IS NULL)
+    AND public.get_my_role() = 'Staf_Admin'
   )
   WITH CHECK (
-    school_id = public.get_my_school_id() AND public.get_my_role() = 'Staf_Admin'
+    (school_id = public.get_my_school_id() OR (school_id IS NULL AND is_active = false))
+    AND public.get_my_role() = 'Staf_Admin'
   );
 
 CREATE POLICY "admin_profiles_delete" ON profiles
   FOR DELETE
   USING (
-    school_id = public.get_my_school_id() AND public.get_my_role() = 'Staf_Admin'
+    (school_id = public.get_my_school_id() OR school_id IS NULL)
+    AND public.get_my_role() = 'Staf_Admin'
   );
 
 
@@ -172,185 +277,152 @@ CREATE POLICY "admin_profiles_delete" ON profiles
 -- 3. academic_years
 -- =============================================================================
 
--- Guru: SELECT tahun ajaran di sekolahnya (dibutuhkan untuk query kelas, dsb.)
 CREATE POLICY "guru_academic_years_select" ON academic_years
   FOR SELECT
   USING (
-    school_id = (SELECT school_id FROM profiles WHERE id = auth.uid()
-                 AND role = 'Guru')
+    school_id = public.get_my_school_id() AND public.get_my_role() = 'Guru'
   );
 
--- Kepala_Sekolah: SELECT semua tahun ajaran di sekolahnya
 CREATE POLICY "kepsek_academic_years_select" ON academic_years
   FOR SELECT
   USING (
-    school_id = (SELECT school_id FROM profiles WHERE id = auth.uid()
-                 AND role = 'Kepala_Sekolah')
+    school_id = public.get_my_school_id() AND public.get_my_role() = 'Kepala_Sekolah'
   );
 
--- Staf_Admin: full access ke tahun ajaran di sekolahnya
 CREATE POLICY "admin_academic_years_select" ON academic_years
   FOR SELECT
   USING (
-    school_id = (SELECT school_id FROM profiles WHERE id = auth.uid()
-                 AND role = 'Staf_Admin')
+    school_id = public.get_my_school_id() AND public.get_my_role() = 'Staf_Admin'
   );
 
 CREATE POLICY "admin_academic_years_insert" ON academic_years
   FOR INSERT
   WITH CHECK (
-    school_id = (SELECT school_id FROM profiles WHERE id = auth.uid()
-                 AND role = 'Staf_Admin')
+    school_id = public.get_my_school_id() AND public.get_my_role() = 'Staf_Admin'
   );
 
 CREATE POLICY "admin_academic_years_update" ON academic_years
   FOR UPDATE
   USING (
-    school_id = (SELECT school_id FROM profiles WHERE id = auth.uid()
-                 AND role = 'Staf_Admin')
+    school_id = public.get_my_school_id() AND public.get_my_role() = 'Staf_Admin'
   )
   WITH CHECK (
-    school_id = (SELECT school_id FROM profiles WHERE id = auth.uid()
-                 AND role = 'Staf_Admin')
+    school_id = public.get_my_school_id() AND public.get_my_role() = 'Staf_Admin'
   );
 
 CREATE POLICY "admin_academic_years_delete" ON academic_years
   FOR DELETE
   USING (
-    school_id = (SELECT school_id FROM profiles WHERE id = auth.uid()
-                 AND role = 'Staf_Admin')
+    school_id = public.get_my_school_id() AND public.get_my_role() = 'Staf_Admin'
   );
 
 
 -- =============================================================================
 -- 4. semesters
 -- =============================================================================
--- semesters tidak punya school_id langsung; school_id ada di academic_years.
--- Akses dikontrol via JOIN ke academic_years.
 
--- Guru: SELECT semester yang terkait dengan tahun ajaran di sekolahnya
 CREATE POLICY "guru_semesters_select" ON semesters
   FOR SELECT
   USING (
     academic_year_id IN (
-      SELECT id FROM academic_years
-      WHERE school_id = (SELECT school_id FROM profiles WHERE id = auth.uid()
-                         AND role = 'Guru')
+      SELECT id FROM public.academic_years WHERE school_id = public.get_my_school_id()
     )
+    AND public.get_my_role() = 'Guru'
   );
 
--- Kepala_Sekolah: SELECT semua semester di sekolahnya
 CREATE POLICY "kepsek_semesters_select" ON semesters
   FOR SELECT
   USING (
     academic_year_id IN (
-      SELECT id FROM academic_years
-      WHERE school_id = (SELECT school_id FROM profiles WHERE id = auth.uid()
-                         AND role = 'Kepala_Sekolah')
+      SELECT id FROM public.academic_years WHERE school_id = public.get_my_school_id()
     )
+    AND public.get_my_role() = 'Kepala_Sekolah'
   );
 
--- Staf_Admin: full access ke semester di sekolahnya
 CREATE POLICY "admin_semesters_select" ON semesters
   FOR SELECT
   USING (
     academic_year_id IN (
-      SELECT id FROM academic_years
-      WHERE school_id = (SELECT school_id FROM profiles WHERE id = auth.uid()
-                         AND role = 'Staf_Admin')
+      SELECT id FROM public.academic_years WHERE school_id = public.get_my_school_id()
     )
+    AND public.get_my_role() = 'Staf_Admin'
   );
 
 CREATE POLICY "admin_semesters_insert" ON semesters
   FOR INSERT
   WITH CHECK (
     academic_year_id IN (
-      SELECT id FROM academic_years
-      WHERE school_id = (SELECT school_id FROM profiles WHERE id = auth.uid()
-                         AND role = 'Staf_Admin')
+      SELECT id FROM public.academic_years WHERE school_id = public.get_my_school_id()
     )
+    AND public.get_my_role() = 'Staf_Admin'
   );
 
 CREATE POLICY "admin_semesters_update" ON semesters
   FOR UPDATE
   USING (
     academic_year_id IN (
-      SELECT id FROM academic_years
-      WHERE school_id = (SELECT school_id FROM profiles WHERE id = auth.uid()
-                         AND role = 'Staf_Admin')
+      SELECT id FROM public.academic_years WHERE school_id = public.get_my_school_id()
     )
+    AND public.get_my_role() = 'Staf_Admin'
   )
   WITH CHECK (
     academic_year_id IN (
-      SELECT id FROM academic_years
-      WHERE school_id = (SELECT school_id FROM profiles WHERE id = auth.uid()
-                         AND role = 'Staf_Admin')
+      SELECT id FROM public.academic_years WHERE school_id = public.get_my_school_id()
     )
+    AND public.get_my_role() = 'Staf_Admin'
   );
 
 CREATE POLICY "admin_semesters_delete" ON semesters
   FOR DELETE
   USING (
     academic_year_id IN (
-      SELECT id FROM academic_years
-      WHERE school_id = (SELECT school_id FROM profiles WHERE id = auth.uid()
-                         AND role = 'Staf_Admin')
+      SELECT id FROM public.academic_years WHERE school_id = public.get_my_school_id()
     )
+    AND public.get_my_role() = 'Staf_Admin'
   );
 
 
 -- =============================================================================
 -- 5. classes
 -- =============================================================================
--- Guru mengajar kelas jika:
---   (a) dia adalah wali kelas (homeroom_teacher_id = auth.uid()), ATAU
---   (b) dia memiliki entri di tabel schedules untuk kelas tersebut
 
--- Guru: full access ke kelas yang diajarnya
-CREATE POLICY "guru_classes_all" ON classes
+CREATE POLICY "guru_classes_select" ON classes
+  FOR SELECT
   USING (
-    public.is_guru_of_class(id)
+    public.is_guru_of_class(id) AND public.get_my_role() = 'Guru'
   );
 
--- Kepala_Sekolah: SELECT semua kelas di sekolahnya
 CREATE POLICY "kepsek_classes_select" ON classes
   FOR SELECT
   USING (
-    school_id = (SELECT school_id FROM profiles WHERE id = auth.uid()
-                 AND role = 'Kepala_Sekolah')
+    school_id = public.get_my_school_id() AND public.get_my_role() = 'Kepala_Sekolah'
   );
 
--- Staf_Admin: full access ke kelas di sekolahnya
 CREATE POLICY "admin_classes_select" ON classes
   FOR SELECT
   USING (
-    school_id = (SELECT school_id FROM profiles WHERE id = auth.uid()
-                 AND role = 'Staf_Admin')
+    school_id = public.get_my_school_id() AND public.get_my_role() = 'Staf_Admin'
   );
 
 CREATE POLICY "admin_classes_insert" ON classes
   FOR INSERT
   WITH CHECK (
-    school_id = (SELECT school_id FROM profiles WHERE id = auth.uid()
-                 AND role = 'Staf_Admin')
+    school_id = public.get_my_school_id() AND public.get_my_role() = 'Staf_Admin'
   );
 
 CREATE POLICY "admin_classes_update" ON classes
   FOR UPDATE
   USING (
-    school_id = (SELECT school_id FROM profiles WHERE id = auth.uid()
-                 AND role = 'Staf_Admin')
+    school_id = public.get_my_school_id() AND public.get_my_role() = 'Staf_Admin'
   )
   WITH CHECK (
-    school_id = (SELECT school_id FROM profiles WHERE id = auth.uid()
-                 AND role = 'Staf_Admin')
+    school_id = public.get_my_school_id() AND public.get_my_role() = 'Staf_Admin'
   );
 
 CREATE POLICY "admin_classes_delete" ON classes
   FOR DELETE
   USING (
-    school_id = (SELECT school_id FROM profiles WHERE id = auth.uid()
-                 AND role = 'Staf_Admin')
+    school_id = public.get_my_school_id() AND public.get_my_role() = 'Staf_Admin'
   );
 
 
@@ -358,57 +430,48 @@ CREATE POLICY "admin_classes_delete" ON classes
 -- 6. students
 -- =============================================================================
 
--- Guru: akses ke siswa yang terdaftar di kelas yang diajarnya
-CREATE POLICY "guru_students_all" ON students
+CREATE POLICY "guru_students_select" ON students
+  FOR SELECT
   USING (
-    id IN (
-      SELECT cs.student_id
-      FROM class_students cs
-      JOIN classes c ON c.id = cs.class_id
-      WHERE c.homeroom_teacher_id = auth.uid()
-         OR c.id IN (SELECT class_id FROM schedules WHERE teacher_id = auth.uid())
+    EXISTS (
+      SELECT 1 FROM public.class_students cs
+      WHERE cs.student_id = students.id
+        AND public.is_guru_of_class(cs.class_id)
     )
+    AND public.get_my_role() = 'Guru'
   );
 
--- Kepala_Sekolah: SELECT semua siswa di sekolahnya
 CREATE POLICY "kepsek_students_select" ON students
   FOR SELECT
   USING (
-    school_id = (SELECT school_id FROM profiles WHERE id = auth.uid()
-                 AND role = 'Kepala_Sekolah')
+    school_id = public.get_my_school_id() AND public.get_my_role() = 'Kepala_Sekolah'
   );
 
--- Staf_Admin: full access ke siswa di sekolahnya
 CREATE POLICY "admin_students_select" ON students
   FOR SELECT
   USING (
-    school_id = (SELECT school_id FROM profiles WHERE id = auth.uid()
-                 AND role = 'Staf_Admin')
+    school_id = public.get_my_school_id() AND public.get_my_role() = 'Staf_Admin'
   );
 
 CREATE POLICY "admin_students_insert" ON students
   FOR INSERT
   WITH CHECK (
-    school_id = (SELECT school_id FROM profiles WHERE id = auth.uid()
-                 AND role = 'Staf_Admin')
+    school_id = public.get_my_school_id() AND public.get_my_role() = 'Staf_Admin'
   );
 
 CREATE POLICY "admin_students_update" ON students
   FOR UPDATE
   USING (
-    school_id = (SELECT school_id FROM profiles WHERE id = auth.uid()
-                 AND role = 'Staf_Admin')
+    school_id = public.get_my_school_id() AND public.get_my_role() = 'Staf_Admin'
   )
   WITH CHECK (
-    school_id = (SELECT school_id FROM profiles WHERE id = auth.uid()
-                 AND role = 'Staf_Admin')
+    school_id = public.get_my_school_id() AND public.get_my_role() = 'Staf_Admin'
   );
 
 CREATE POLICY "admin_students_delete" ON students
   FOR DELETE
   USING (
-    school_id = (SELECT school_id FROM profiles WHERE id = auth.uid()
-                 AND role = 'Staf_Admin')
+    school_id = public.get_my_school_id() AND public.get_my_role() = 'Staf_Admin'
   );
 
 
@@ -416,73 +479,61 @@ CREATE POLICY "admin_students_delete" ON students
 -- 7. class_students
 -- =============================================================================
 
--- Guru: akses ke pendaftaran kelas yang diajarnya
-CREATE POLICY "guru_class_students_all" ON class_students
+CREATE POLICY "guru_class_students_select" ON class_students
+  FOR SELECT
   USING (
-    class_id IN (
-      SELECT id FROM classes
-      WHERE homeroom_teacher_id = auth.uid()
-         OR id IN (SELECT class_id FROM schedules WHERE teacher_id = auth.uid())
-    )
+    public.is_guru_of_class(class_id) AND public.get_my_role() = 'Guru'
   );
 
--- Kepala_Sekolah: SELECT pendaftaran kelas di sekolahnya
 CREATE POLICY "kepsek_class_students_select" ON class_students
   FOR SELECT
   USING (
     class_id IN (
-      SELECT id FROM classes
-      WHERE school_id = (SELECT school_id FROM profiles WHERE id = auth.uid()
-                         AND role = 'Kepala_Sekolah')
+      SELECT id FROM public.classes WHERE school_id = public.get_my_school_id()
     )
+    AND public.get_my_role() = 'Kepala_Sekolah'
   );
 
--- Staf_Admin: full access ke pendaftaran kelas di sekolahnya
 CREATE POLICY "admin_class_students_select" ON class_students
   FOR SELECT
   USING (
     class_id IN (
-      SELECT id FROM classes
-      WHERE school_id = (SELECT school_id FROM profiles WHERE id = auth.uid()
-                         AND role = 'Staf_Admin')
+      SELECT id FROM public.classes WHERE school_id = public.get_my_school_id()
     )
+    AND public.get_my_role() = 'Staf_Admin'
   );
 
 CREATE POLICY "admin_class_students_insert" ON class_students
   FOR INSERT
   WITH CHECK (
     class_id IN (
-      SELECT id FROM classes
-      WHERE school_id = (SELECT school_id FROM profiles WHERE id = auth.uid()
-                         AND role = 'Staf_Admin')
+      SELECT id FROM public.classes WHERE school_id = public.get_my_school_id()
     )
+    AND public.get_my_role() = 'Staf_Admin'
   );
 
 CREATE POLICY "admin_class_students_update" ON class_students
   FOR UPDATE
   USING (
     class_id IN (
-      SELECT id FROM classes
-      WHERE school_id = (SELECT school_id FROM profiles WHERE id = auth.uid()
-                         AND role = 'Staf_Admin')
+      SELECT id FROM public.classes WHERE school_id = public.get_my_school_id()
     )
+    AND public.get_my_role() = 'Staf_Admin'
   )
   WITH CHECK (
     class_id IN (
-      SELECT id FROM classes
-      WHERE school_id = (SELECT school_id FROM profiles WHERE id = auth.uid()
-                         AND role = 'Staf_Admin')
+      SELECT id FROM public.classes WHERE school_id = public.get_my_school_id()
     )
+    AND public.get_my_role() = 'Staf_Admin'
   );
 
 CREATE POLICY "admin_class_students_delete" ON class_students
   FOR DELETE
   USING (
     class_id IN (
-      SELECT id FROM classes
-      WHERE school_id = (SELECT school_id FROM profiles WHERE id = auth.uid()
-                         AND role = 'Staf_Admin')
+      SELECT id FROM public.classes WHERE school_id = public.get_my_school_id()
     )
+    AND public.get_my_role() = 'Staf_Admin'
   );
 
 
@@ -490,73 +541,64 @@ CREATE POLICY "admin_class_students_delete" ON class_students
 -- 8. attendance
 -- =============================================================================
 
--- Guru: full access ke kehadiran di kelas yang diajarnya
 CREATE POLICY "guru_attendance_all" ON attendance
+  FOR ALL
   USING (
-    class_id IN (
-      SELECT id FROM classes
-      WHERE homeroom_teacher_id = auth.uid()
-         OR id IN (SELECT class_id FROM schedules WHERE teacher_id = auth.uid())
-    )
+    public.is_guru_of_class(class_id) AND public.get_my_role() = 'Guru'
+  )
+  WITH CHECK (
+    public.is_guru_of_class(class_id) AND public.get_my_role() = 'Guru'
   );
 
--- Kepala_Sekolah: SELECT semua kehadiran di sekolahnya
 CREATE POLICY "kepsek_attendance_select" ON attendance
   FOR SELECT
   USING (
     class_id IN (
-      SELECT id FROM classes
-      WHERE school_id = (SELECT school_id FROM profiles WHERE id = auth.uid()
-                         AND role = 'Kepala_Sekolah')
+      SELECT id FROM public.classes WHERE school_id = public.get_my_school_id()
     )
+    AND public.get_my_role() = 'Kepala_Sekolah'
   );
 
--- Staf_Admin: full access ke kehadiran di sekolahnya
 CREATE POLICY "admin_attendance_select" ON attendance
   FOR SELECT
   USING (
     class_id IN (
-      SELECT id FROM classes
-      WHERE school_id = (SELECT school_id FROM profiles WHERE id = auth.uid()
-                         AND role = 'Staf_Admin')
+      SELECT id FROM public.classes WHERE school_id = public.get_my_school_id()
     )
+    AND public.get_my_role() = 'Staf_Admin'
   );
 
 CREATE POLICY "admin_attendance_insert" ON attendance
   FOR INSERT
   WITH CHECK (
     class_id IN (
-      SELECT id FROM classes
-      WHERE school_id = (SELECT school_id FROM profiles WHERE id = auth.uid()
-                         AND role = 'Staf_Admin')
+      SELECT id FROM public.classes WHERE school_id = public.get_my_school_id()
     )
+    AND public.get_my_role() = 'Staf_Admin'
   );
 
 CREATE POLICY "admin_attendance_update" ON attendance
   FOR UPDATE
   USING (
     class_id IN (
-      SELECT id FROM classes
-      WHERE school_id = (SELECT school_id FROM profiles WHERE id = auth.uid()
-                         AND role = 'Staf_Admin')
+      SELECT id FROM public.classes WHERE school_id = public.get_my_school_id()
     )
+    AND public.get_my_role() = 'Staf_Admin'
   )
   WITH CHECK (
     class_id IN (
-      SELECT id FROM classes
-      WHERE school_id = (SELECT school_id FROM profiles WHERE id = auth.uid()
-                         AND role = 'Staf_Admin')
+      SELECT id FROM public.classes WHERE school_id = public.get_my_school_id()
     )
+    AND public.get_my_role() = 'Staf_Admin'
   );
 
 CREATE POLICY "admin_attendance_delete" ON attendance
   FOR DELETE
   USING (
     class_id IN (
-      SELECT id FROM classes
-      WHERE school_id = (SELECT school_id FROM profiles WHERE id = auth.uid()
-                         AND role = 'Staf_Admin')
+      SELECT id FROM public.classes WHERE school_id = public.get_my_school_id()
     )
+    AND public.get_my_role() = 'Staf_Admin'
   );
 
 
@@ -564,149 +606,157 @@ CREATE POLICY "admin_attendance_delete" ON attendance
 -- 9. schedules
 -- =============================================================================
 
--- Guru: SELECT jadwal mengajar mereka sendiri atau jadwal di kelas yang mereka ajar
 CREATE POLICY "guru_schedules_select" ON schedules
   FOR SELECT
   USING (
-    teacher_id = (SELECT auth.uid())
-    OR public.is_guru_of_class(class_id)
+    (teacher_id = (SELECT auth.uid()) OR public.is_guru_of_class(class_id))
+    AND public.get_my_role() = 'Guru'
   );
 
--- Kepala_Sekolah: SELECT semua jadwal di sekolahnya
 CREATE POLICY "kepsek_schedules_select" ON schedules
   FOR SELECT
   USING (
     class_id IN (
-      SELECT id FROM classes
-      WHERE school_id = (SELECT school_id FROM profiles WHERE id = auth.uid()
-                         AND role = 'Kepala_Sekolah')
+      SELECT id FROM public.classes WHERE school_id = public.get_my_school_id()
     )
+    AND public.get_my_role() = 'Kepala_Sekolah'
   );
 
--- Staf_Admin: full access ke jadwal di sekolahnya
 CREATE POLICY "admin_schedules_select" ON schedules
   FOR SELECT
   USING (
     class_id IN (
-      SELECT id FROM classes
-      WHERE school_id = (SELECT school_id FROM profiles WHERE id = auth.uid()
-                         AND role = 'Staf_Admin')
+      SELECT id FROM public.classes WHERE school_id = public.get_my_school_id()
     )
+    AND public.get_my_role() = 'Staf_Admin'
   );
 
 CREATE POLICY "admin_schedules_insert" ON schedules
   FOR INSERT
   WITH CHECK (
     class_id IN (
-      SELECT id FROM classes
-      WHERE school_id = (SELECT school_id FROM profiles WHERE id = auth.uid()
-                         AND role = 'Staf_Admin')
+      SELECT id FROM public.classes WHERE school_id = public.get_my_school_id()
     )
+    AND public.get_my_role() = 'Staf_Admin'
   );
 
 CREATE POLICY "admin_schedules_update" ON schedules
   FOR UPDATE
   USING (
     class_id IN (
-      SELECT id FROM classes
-      WHERE school_id = (SELECT school_id FROM profiles WHERE id = auth.uid()
-                         AND role = 'Staf_Admin')
+      SELECT id FROM public.classes WHERE school_id = public.get_my_school_id()
     )
+    AND public.get_my_role() = 'Staf_Admin'
   )
   WITH CHECK (
     class_id IN (
-      SELECT id FROM classes
-      WHERE school_id = (SELECT school_id FROM profiles WHERE id = auth.uid()
-                         AND role = 'Staf_Admin')
+      SELECT id FROM public.classes WHERE school_id = public.get_my_school_id()
     )
+    AND public.get_my_role() = 'Staf_Admin'
   );
 
 CREATE POLICY "admin_schedules_delete" ON schedules
   FOR DELETE
   USING (
     class_id IN (
-      SELECT id FROM classes
-      WHERE school_id = (SELECT school_id FROM profiles WHERE id = auth.uid()
-                         AND role = 'Staf_Admin')
+      SELECT id FROM public.classes WHERE school_id = public.get_my_school_id()
     )
+    AND public.get_my_role() = 'Staf_Admin'
   );
 
 
 -- =============================================================================
 -- 10. notes
 -- =============================================================================
--- notes tidak punya school_id; dikontrol via students.school_id
 
--- Guru: full access ke catatan yang ia tulis, atau catatan tentang siswa di kelasnya
-CREATE POLICY "guru_notes_all" ON notes
+CREATE POLICY "guru_notes_select" ON notes
+  FOR SELECT
   USING (
-    author_id = auth.uid()
-    OR student_id IN (
-      SELECT cs.student_id
-      FROM class_students cs
-      JOIN classes c ON c.id = cs.class_id
-      WHERE c.homeroom_teacher_id = auth.uid()
-         OR c.id IN (SELECT class_id FROM schedules WHERE teacher_id = auth.uid())
+    (
+      author_id = (SELECT auth.uid())
+      OR EXISTS (
+        SELECT 1 FROM public.class_students cs
+        WHERE cs.student_id = notes.student_id
+          AND public.is_guru_of_class(cs.class_id)
+      )
+    )
+    AND public.get_my_role() = 'Guru'
+  );
+
+CREATE POLICY "guru_notes_insert" ON notes
+  FOR INSERT
+  WITH CHECK (
+    author_id = (SELECT auth.uid())
+    AND public.get_my_role() = 'Guru'
+    AND student_id IN (
+      SELECT id FROM public.students WHERE school_id = public.get_my_school_id()
     )
   );
 
--- Kepala_Sekolah: SELECT semua catatan siswa di sekolahnya
+CREATE POLICY "guru_notes_update" ON notes
+  FOR UPDATE
+  USING (
+    author_id = (SELECT auth.uid()) AND public.get_my_role() = 'Guru'
+  )
+  WITH CHECK (
+    author_id = (SELECT auth.uid()) AND public.get_my_role() = 'Guru'
+  );
+
+CREATE POLICY "guru_notes_delete" ON notes
+  FOR DELETE
+  USING (
+    author_id = (SELECT auth.uid()) AND public.get_my_role() = 'Guru'
+  );
+
 CREATE POLICY "kepsek_notes_select" ON notes
   FOR SELECT
   USING (
     student_id IN (
-      SELECT id FROM students
-      WHERE school_id = (SELECT school_id FROM profiles WHERE id = auth.uid()
-                         AND role = 'Kepala_Sekolah')
+      SELECT id FROM public.students WHERE school_id = public.get_my_school_id()
     )
+    AND public.get_my_role() = 'Kepala_Sekolah'
   );
 
--- Staf_Admin: full access ke catatan siswa di sekolahnya
 CREATE POLICY "admin_notes_select" ON notes
   FOR SELECT
   USING (
     student_id IN (
-      SELECT id FROM students
-      WHERE school_id = (SELECT school_id FROM profiles WHERE id = auth.uid()
-                         AND role = 'Staf_Admin')
+      SELECT id FROM public.students WHERE school_id = public.get_my_school_id()
     )
+    AND public.get_my_role() = 'Staf_Admin'
   );
 
 CREATE POLICY "admin_notes_insert" ON notes
   FOR INSERT
   WITH CHECK (
     student_id IN (
-      SELECT id FROM students
-      WHERE school_id = (SELECT school_id FROM profiles WHERE id = auth.uid()
-                         AND role = 'Staf_Admin')
+      SELECT id FROM public.students WHERE school_id = public.get_my_school_id()
     )
+    AND public.get_my_role() = 'Staf_Admin'
   );
 
 CREATE POLICY "admin_notes_update" ON notes
   FOR UPDATE
   USING (
     student_id IN (
-      SELECT id FROM students
-      WHERE school_id = (SELECT school_id FROM profiles WHERE id = auth.uid()
-                         AND role = 'Staf_Admin')
+      SELECT id FROM public.students WHERE school_id = public.get_my_school_id()
     )
+    AND public.get_my_role() = 'Staf_Admin'
   )
   WITH CHECK (
     student_id IN (
-      SELECT id FROM students
-      WHERE school_id = (SELECT school_id FROM profiles WHERE id = auth.uid()
-                         AND role = 'Staf_Admin')
+      SELECT id FROM public.students WHERE school_id = public.get_my_school_id()
     )
+    AND public.get_my_role() = 'Staf_Admin'
   );
 
 CREATE POLICY "admin_notes_delete" ON notes
   FOR DELETE
   USING (
     student_id IN (
-      SELECT id FROM students
-      WHERE school_id = (SELECT school_id FROM profiles WHERE id = auth.uid()
-                         AND role = 'Staf_Admin')
+      SELECT id FROM public.students WHERE school_id = public.get_my_school_id()
     )
+    AND public.get_my_role() = 'Staf_Admin'
   );
 
 
@@ -714,170 +764,152 @@ CREATE POLICY "admin_notes_delete" ON notes
 -- 11. grade_components
 -- =============================================================================
 
--- Guru: SELECT komponen nilai di kelas yang diajarnya (Req 10.1)
 CREATE POLICY "guru_grade_components_select" ON grade_components
   FOR SELECT
   USING (
-    class_id IN (
-      SELECT id FROM classes
-      WHERE homeroom_teacher_id = auth.uid()
-         OR id IN (SELECT class_id FROM schedules WHERE teacher_id = auth.uid())
-    )
+    public.is_guru_of_class(class_id) AND public.get_my_role() = 'Guru'
   );
 
--- Kepala_Sekolah: SELECT semua komponen nilai di sekolahnya
 CREATE POLICY "kepsek_grade_components_select" ON grade_components
   FOR SELECT
   USING (
     class_id IN (
-      SELECT id FROM classes
-      WHERE school_id = (SELECT school_id FROM profiles WHERE id = auth.uid()
-                         AND role = 'Kepala_Sekolah')
+      SELECT id FROM public.classes WHERE school_id = public.get_my_school_id()
     )
+    AND public.get_my_role() = 'Kepala_Sekolah'
   );
 
--- Staf_Admin: full access ke komponen nilai di sekolahnya
 CREATE POLICY "admin_grade_components_select" ON grade_components
   FOR SELECT
   USING (
     class_id IN (
-      SELECT id FROM classes
-      WHERE school_id = (SELECT school_id FROM profiles WHERE id = auth.uid()
-                         AND role = 'Staf_Admin')
+      SELECT id FROM public.classes WHERE school_id = public.get_my_school_id()
     )
+    AND public.get_my_role() = 'Staf_Admin'
   );
 
 CREATE POLICY "admin_grade_components_insert" ON grade_components
   FOR INSERT
   WITH CHECK (
     class_id IN (
-      SELECT id FROM classes
-      WHERE school_id = (SELECT school_id FROM profiles WHERE id = auth.uid()
-                         AND role = 'Staf_Admin')
+      SELECT id FROM public.classes WHERE school_id = public.get_my_school_id()
     )
+    AND public.get_my_role() = 'Staf_Admin'
   );
 
 CREATE POLICY "admin_grade_components_update" ON grade_components
   FOR UPDATE
   USING (
     class_id IN (
-      SELECT id FROM classes
-      WHERE school_id = (SELECT school_id FROM profiles WHERE id = auth.uid()
-                         AND role = 'Staf_Admin')
+      SELECT id FROM public.classes WHERE school_id = public.get_my_school_id()
     )
+    AND public.get_my_role() = 'Staf_Admin'
   )
   WITH CHECK (
     class_id IN (
-      SELECT id FROM classes
-      WHERE school_id = (SELECT school_id FROM profiles WHERE id = auth.uid()
-                         AND role = 'Staf_Admin')
+      SELECT id FROM public.classes WHERE school_id = public.get_my_school_id()
     )
+    AND public.get_my_role() = 'Staf_Admin'
   );
 
 CREATE POLICY "admin_grade_components_delete" ON grade_components
   FOR DELETE
   USING (
     class_id IN (
-      SELECT id FROM classes
-      WHERE school_id = (SELECT school_id FROM profiles WHERE id = auth.uid()
-                         AND role = 'Staf_Admin')
+      SELECT id FROM public.classes WHERE school_id = public.get_my_school_id()
     )
+    AND public.get_my_role() = 'Staf_Admin'
   );
 
 
 -- =============================================================================
 -- 12. grades
 -- =============================================================================
--- grades dikontrol via grade_components.class_id
 
--- Guru: full access ke nilai siswa di kelas yang diajarnya
 CREATE POLICY "guru_grades_all" ON grades
+  FOR ALL
   USING (
     grade_component_id IN (
-      SELECT id FROM grade_components
-      WHERE class_id IN (
-        SELECT id FROM classes
-        WHERE homeroom_teacher_id = auth.uid()
-           OR id IN (SELECT class_id FROM schedules WHERE teacher_id = auth.uid())
-      )
+      SELECT id FROM public.grade_components
+      WHERE public.is_guru_of_class(class_id)
     )
+    AND public.get_my_role() = 'Guru'
+  )
+  WITH CHECK (
+    grade_component_id IN (
+      SELECT id FROM public.grade_components
+      WHERE public.is_guru_of_class(class_id)
+    )
+    AND public.get_my_role() = 'Guru'
   );
 
--- Kepala_Sekolah: SELECT semua nilai di sekolahnya
 CREATE POLICY "kepsek_grades_select" ON grades
   FOR SELECT
   USING (
     grade_component_id IN (
-      SELECT id FROM grade_components
-      WHERE class_id IN (
-        SELECT id FROM classes
-        WHERE school_id = (SELECT school_id FROM profiles WHERE id = auth.uid()
-                           AND role = 'Kepala_Sekolah')
-      )
+      SELECT gc.id
+      FROM public.grade_components gc
+      JOIN public.classes c ON c.id = gc.class_id
+      WHERE c.school_id = public.get_my_school_id()
     )
+    AND public.get_my_role() = 'Kepala_Sekolah'
   );
 
--- Staf_Admin: full access ke nilai di sekolahnya
 CREATE POLICY "admin_grades_select" ON grades
   FOR SELECT
   USING (
     grade_component_id IN (
-      SELECT id FROM grade_components
-      WHERE class_id IN (
-        SELECT id FROM classes
-        WHERE school_id = (SELECT school_id FROM profiles WHERE id = auth.uid()
-                           AND role = 'Staf_Admin')
-      )
+      SELECT gc.id
+      FROM public.grade_components gc
+      JOIN public.classes c ON c.id = gc.class_id
+      WHERE c.school_id = public.get_my_school_id()
     )
+    AND public.get_my_role() = 'Staf_Admin'
   );
 
 CREATE POLICY "admin_grades_insert" ON grades
   FOR INSERT
   WITH CHECK (
     grade_component_id IN (
-      SELECT id FROM grade_components
-      WHERE class_id IN (
-        SELECT id FROM classes
-        WHERE school_id = (SELECT school_id FROM profiles WHERE id = auth.uid()
-                           AND role = 'Staf_Admin')
-      )
+      SELECT gc.id
+      FROM public.grade_components gc
+      JOIN public.classes c ON c.id = gc.class_id
+      WHERE c.school_id = public.get_my_school_id()
     )
+    AND public.get_my_role() = 'Staf_Admin'
   );
 
 CREATE POLICY "admin_grades_update" ON grades
   FOR UPDATE
   USING (
     grade_component_id IN (
-      SELECT id FROM grade_components
-      WHERE class_id IN (
-        SELECT id FROM classes
-        WHERE school_id = (SELECT school_id FROM profiles WHERE id = auth.uid()
-                           AND role = 'Staf_Admin')
-      )
+      SELECT gc.id
+      FROM public.grade_components gc
+      JOIN public.classes c ON c.id = gc.class_id
+      WHERE c.school_id = public.get_my_school_id()
     )
+    AND public.get_my_role() = 'Staf_Admin'
   )
   WITH CHECK (
     grade_component_id IN (
-      SELECT id FROM grade_components
-      WHERE class_id IN (
-        SELECT id FROM classes
-        WHERE school_id = (SELECT school_id FROM profiles WHERE id = auth.uid()
-                           AND role = 'Staf_Admin')
-      )
+      SELECT gc.id
+      FROM public.grade_components gc
+      JOIN public.classes c ON c.id = gc.class_id
+      WHERE c.school_id = public.get_my_school_id()
     )
+    AND public.get_my_role() = 'Staf_Admin'
   );
 
 CREATE POLICY "admin_grades_delete" ON grades
   FOR DELETE
   USING (
     grade_component_id IN (
-      SELECT id FROM grade_components
-      WHERE class_id IN (
-        SELECT id FROM classes
-        WHERE school_id = (SELECT school_id FROM profiles WHERE id = auth.uid()
-                           AND role = 'Staf_Admin')
-      )
+      SELECT gc.id
+      FROM public.grade_components gc
+      JOIN public.classes c ON c.id = gc.class_id
+      WHERE c.school_id = public.get_my_school_id()
     )
+    AND public.get_my_role() = 'Staf_Admin'
   );
 
 
@@ -885,51 +917,41 @@ CREATE POLICY "admin_grades_delete" ON grades
 -- 13. grade_scales
 -- =============================================================================
 
--- Guru: SELECT skala nilai di sekolahnya (dibutuhkan untuk kalkulasi rapor)
 CREATE POLICY "guru_grade_scales_select" ON grade_scales
   FOR SELECT
   USING (
-    school_id = (SELECT school_id FROM profiles WHERE id = auth.uid()
-                 AND role = 'Guru')
+    school_id = public.get_my_school_id() AND public.get_my_role() = 'Guru'
   );
 
--- Kepala_Sekolah: SELECT semua skala nilai di sekolahnya
 CREATE POLICY "kepsek_grade_scales_select" ON grade_scales
   FOR SELECT
   USING (
-    school_id = (SELECT school_id FROM profiles WHERE id = auth.uid()
-                 AND role = 'Kepala_Sekolah')
+    school_id = public.get_my_school_id() AND public.get_my_role() = 'Kepala_Sekolah'
   );
 
--- Staf_Admin: full access ke skala nilai di sekolahnya
 CREATE POLICY "admin_grade_scales_select" ON grade_scales
   FOR SELECT
   USING (
-    school_id = (SELECT school_id FROM profiles WHERE id = auth.uid()
-                 AND role = 'Staf_Admin')
+    school_id = public.get_my_school_id() AND public.get_my_role() = 'Staf_Admin'
   );
 
 CREATE POLICY "admin_grade_scales_insert" ON grade_scales
   FOR INSERT
   WITH CHECK (
-    school_id = (SELECT school_id FROM profiles WHERE id = auth.uid()
-                 AND role = 'Staf_Admin')
+    school_id = public.get_my_school_id() AND public.get_my_role() = 'Staf_Admin'
   );
 
 CREATE POLICY "admin_grade_scales_update" ON grade_scales
   FOR UPDATE
   USING (
-    school_id = (SELECT school_id FROM profiles WHERE id = auth.uid()
-                 AND role = 'Staf_Admin')
+    school_id = public.get_my_school_id() AND public.get_my_role() = 'Staf_Admin'
   )
   WITH CHECK (
-    school_id = (SELECT school_id FROM profiles WHERE id = auth.uid()
-                 AND role = 'Staf_Admin')
+    school_id = public.get_my_school_id() AND public.get_my_role() = 'Staf_Admin'
   );
 
 CREATE POLICY "admin_grade_scales_delete" ON grade_scales
   FOR DELETE
   USING (
-    school_id = (SELECT school_id FROM profiles WHERE id = auth.uid()
-                 AND role = 'Staf_Admin')
+    school_id = public.get_my_school_id() AND public.get_my_role() = 'Staf_Admin'
   );

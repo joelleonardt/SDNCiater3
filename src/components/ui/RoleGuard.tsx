@@ -19,9 +19,23 @@ interface RoleGuardProps {
 
 export default function RoleGuard({ allowedRoles, children }: RoleGuardProps) {
   const profile = useAuthStore((s) => s.profile)
+  const profileLoading = useAuthStore((s) => s.profileLoading)
 
-  // Jika profil belum tersedia atau role tidak ada dalam daftar yang diizinkan
-  if (!profile || !allowedRoles.includes(profile.role)) {
+  if (profileLoading) {
+    return (
+      <div className="flex h-48 items-center justify-center">
+        <span className="text-sm text-muted-foreground">Memuat profil pengguna…</span>
+      </div>
+    )
+  }
+
+  // Jika profil gagal dimuat, biarkan AppShell menampilkan banner diagnostik error
+  if (!profile) {
+    return null
+  }
+
+  // Jika role tidak ada dalam daftar yang diizinkan
+  if (!allowedRoles.includes(profile.role)) {
     return <Navigate to="/403" replace />
   }
 

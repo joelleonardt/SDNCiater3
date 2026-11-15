@@ -1,5 +1,5 @@
 import { supabase } from '@/services/supabase'
-import { calculateAttendancePercentage } from '@/lib/utils'
+import { calculateAttendancePercentage, getErrorMessage } from '@/lib/utils'
 import type { Profile } from '@/types/database.types'
 
 type Role = Profile['role']
@@ -55,6 +55,9 @@ export async function getDashboardSummary(
     .from('classes')
     .select('*')
     .eq('school_id', schoolId)
+  if (classResult.error) {
+    throw new Error(getErrorMessage(classResult.error, 'Gagal memuat ringkasan kelas.'))
+  }
   // shortcut: cast karena Supabase typed-client tidak meng-infer subset kolom dengan benar
   const classIds: string[] = ((classResult.data ?? []) as Array<{ id: string }>).map((c) => c.id)
 
@@ -64,6 +67,9 @@ export async function getDashboardSummary(
     .select('*')
     .eq('school_id', schoolId)
     .eq('is_deleted', false)
+  if (studentResult.error) {
+    throw new Error(getErrorMessage(studentResult.error, 'Gagal memuat ringkasan siswa.'))
+  }
   const studentIds: string[] = ((studentResult.data ?? []) as Array<{ id: string }>).map((s) => s.id)
 
   // Jalankan query utama secara paralel
@@ -104,6 +110,12 @@ export async function getDashboardSummary(
           .in('student_id', studentIds)
       : Promise.resolve({ data: null, count: 0, error: null }),
   ])
+
+  const firstError =
+    siswaResult.error ?? kelasResult.error ?? kehadiranResult.error ?? catatanResult.error
+  if (firstError) {
+    throw new Error(getErrorMessage(firstError, 'Gagal memuat ringkasan dashboard.'))
+  }
 
   const totalSiswa = siswaResult.count ?? 0
   const totalKelas = kelasResult.count ?? 0
@@ -168,23 +180,31 @@ export async function getRecentNotesForDashboard(
   d.setDate(d.getDate() - 7)
   const sevenDaysAgoStr = d.toISOString().slice(0, 10)
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data, error } = (await supabase
     .from('notes')
     .select('id, category, content, note_date, students!inner(id, school_id, full_name)')
     .eq('students.school_id', schoolId)
     .gte('note_date', sevenDaysAgoStr)
     .order('note_date', { ascending: false })
-    .limit(5)) as { data: any[] | null; error: unknown }
+    .limit(5)) as {
+    data: Array<{
+      id: string
+      category: 'Perilaku' | 'Prestasi'
+      content: string
+      note_date: string
+      students: { full_name: string } | null
+    }> | null
+    error: unknown
+  }
 
   if (error || !data) return []
 
   return data.map((row) => ({
-    id: row.id as string,
-    category: row.category as 'Perilaku' | 'Prestasi',
-    content: row.content as string,
-    note_date: row.note_date as string,
-    student_name: (row.students as { full_name: string } | null)?.full_name ?? '—',
+    id: row.id,
+    category: row.category,
+    content: row.content,
+    note_date: row.note_date,
+    student_name: row.students?.full_name ?? '—',
   }))
 }
 

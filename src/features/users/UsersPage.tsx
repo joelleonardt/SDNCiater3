@@ -1,7 +1,8 @@
 import * as React from 'react'
-import { Users, Plus, Search } from 'lucide-react'
+import { Users, Plus, Search, Clock, RefreshCw } from 'lucide-react'
 import { cn, formatDate } from '@/lib/utils'
 import { useAuthStore } from '@/stores/authStore'
+import { isUserPendingVerification } from '@/services/userService'
 import PageHeader from '@/components/ui/PageHeader'
 import DataTable, { type ColumnDef } from '@/components/ui/DataTable'
 import ConfirmDialog from '@/components/ui/ConfirmDialog'
@@ -10,14 +11,17 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useUsers } from './useUsers'
 import UserFormModal from './UserFormModal'
+import PendingVerificationList from './PendingVerificationList'
 import type { Profile } from '@/types/database.types'
 
 type Role = 'Guru' | 'Kepala_Sekolah' | 'Staf_Admin'
+type RoleFilter = Role | 'Semua' | 'pending'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-const ROLE_FILTER_OPTIONS: { value: Role | 'Semua'; label: string }[] = [
+const ROLE_FILTER_OPTIONS: { value: RoleFilter; label: string }[] = [
   { value: 'Semua', label: 'Semua' },
+  { value: 'pending', label: 'Menunggu Verifikasi' },
   { value: 'Guru', label: 'Guru' },
   { value: 'Kepala_Sekolah', label: 'Kepala Sekolah' },
   { value: 'Staf_Admin', label: 'Staf Admin' },
@@ -46,10 +50,25 @@ const PAGE_SIZE = 10
 export default function UsersPage() {
   const profile = useAuthStore((s) => s.profile)
   const canManageUsers = profile?.role === 'Staf_Admin'
-  const { users, loading, addUser, updateRole, toggleActive } = useUsers()
+  const {
+    users,
+    loading,
+    error,
+    reload,
+    addUser,
+    updateRole,
+    verifyUser,
+    rejectVerification,
+    toggleActive,
+  } = useUsers()
+
+  const pendingVerificationUsers = React.useMemo(
+    () => users.filter(isUserPendingVerification),
+    [users]
+  )
 
   // ── Filter & pagination ───────────────────────────────────────────────────
-  const [roleFilter, setRoleFilter] = React.useState<Role | 'Semua'>('Semua')
+  const [roleFilter, setRoleFilter] = React.useState<RoleFilter>('Semua')
   const [search, setSearch] = React.useState('')
   const [pageIndex, setPageIndex] = React.useState(0)
   const [pageSize, setPageSize] = React.useState(PAGE_SIZE)
@@ -65,7 +84,9 @@ export default function UsersPage() {
   // ── Filter lokal ──────────────────────────────────────────────────────────
   const filtered = React.useMemo(() => {
     let result = users
-    if (roleFilter !== 'Semua') {
+    if (roleFilter === 'pending') {
+      result = result.filter(isUserPendingVerification)
+    } else if (roleFilter !== 'Semua') {
       result = result.filter((u) => u.role === roleFilter)
     }
     const q = search.trim().toLowerCase()
@@ -109,23 +130,41 @@ export default function UsersPage() {
         key: 'role',
         header: 'Peran',
         cell: (row) => (
-          <span
-            className={cn(
-              'inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium',
-              roleBadge[row.role],
+          <div className="flex flex-col items-start gap-1">
+            <span
+              className={cn(
+                'inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium',
+                roleBadge[row.role],
+              )}
+            >
+              {roleLabel[row.role]}
+            </span>
+            {!row.school_id && row.is_active !== false && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-2 py-0.5 text-[11px] font-medium text-blue-800 dark:bg-blue-900/40 dark:text-blue-300">
+                <Clock className="h-3 w-3" aria-hidden="true" />
+                Akun Baru
+              </span>
             )}
-          >
-            {roleLabel[row.role]}
-          </span>
+            {row.requested_role && (!row.school_id || row.requested_role !== row.role) && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-300">
+                <Clock className="h-3 w-3" aria-hidden="true" />
+                Ajuan: {roleLabel[row.requested_role]}
+              </span>
+            )}
+          </div>
         ),
-        className: 'w-36',
+        className: 'w-44',
       },
       {
         key: 'is_active',
         header: 'Status',
-        className: 'w-28',
+        className: 'w-36',
         cell: (row) =>
-          canManageUsers ? (
+          !row.school_id && row.is_active !== false ? (
+            <span className="inline-flex items-center rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-300">
+              Menunggu Verifikasi
+            </span>
+          ) : canManageUsers ? (
             <button
               type="button"
               onClick={() => setToggleTarget(row)}
@@ -164,15 +203,15 @@ export default function UsersPage() {
             {
               key: 'actions',
               header: 'Aksi',
-              className: 'w-20 text-right',
+              className: 'w-28 text-right',
               cell: (row: Profile) => (
                 <div className="flex justify-end">
                   <Button
-                    variant="outline"
+                    variant={!row.school_id && row.is_active !== false ? 'default' : 'outline'}
                     size="sm"
                     onClick={() => setEditTarget(row)}
                   >
-                    Edit
+                    {!row.school_id && row.is_active !== false ? 'Verifikasi' : 'Edit'}
                   </Button>
                 </div>
               ),
@@ -200,15 +239,33 @@ export default function UsersPage() {
     <div className="space-y-6 p-6">
       <PageHeader
         title="Pengguna"
-        description="Kelola akun pengguna dan penetapan peran sistem."
+        description="Kelola akun pengguna, verifikasi pendaftaran baru, dan penetapan peran sistem."
         actions={
-          canManageUsers && (
-            <Button onClick={() => setCreateOpen(true)}>
-              <Plus className="mr-2 h-4 w-4" />
-              Tambah Pengguna
+          <div className="flex flex-wrap items-center gap-2">
+            <Button variant="outline" disabled={loading} onClick={() => void reload()}>
+              <RefreshCw className={cn('mr-2 h-4 w-4', loading && 'animate-spin')} />
+              Muat Ulang
             </Button>
-          )
+            {canManageUsers && (
+              <Button onClick={() => setCreateOpen(true)}>
+                <Plus className="mr-2 h-4 w-4" />
+                Tambah Pengguna
+              </Button>
+            )}
+          </div>
         }
+      />
+
+      {/* Panel Verifikasi Akun Baru & Permohonan Perubahan Peran */}
+      <PendingVerificationList
+        users={pendingVerificationUsers}
+        canManage={canManageUsers}
+        loading={loading}
+        error={error}
+        showWhenEmpty={canManageUsers && roleFilter === 'pending'}
+        onReload={() => void reload()}
+        onApprove={(u, approvedRole) => verifyUser(u.id, approvedRole)}
+        onReject={(u) => rejectVerification(u.id, !u.school_id)}
       />
 
       {/* Filter peran & pencarian */}
@@ -221,7 +278,9 @@ export default function UsersPage() {
               size="sm"
               onClick={() => setRoleFilter(opt.value)}
             >
-              {opt.label}
+              {opt.value === 'pending' && pendingVerificationUsers.length > 0
+                ? `${opt.label} (${pendingVerificationUsers.length})`
+                : opt.label}
             </Button>
           ))}
         </div>
@@ -246,9 +305,11 @@ export default function UsersPage() {
           description={
             search
               ? 'Tidak ditemukan pengguna yang sesuai dengan pencarian.'
-              : roleFilter !== 'Semua'
-                ? `Tidak ada pengguna dengan peran ${roleLabel[roleFilter as Role]}.`
-                : 'Belum ada pengguna terdaftar.'
+              : roleFilter === 'pending'
+                ? 'Tidak ada akun atau permohonan peran yang menunggu verifikasi.'
+                : roleFilter !== 'Semua'
+                  ? `Tidak ada pengguna dengan peran ${roleLabel[roleFilter as Role]}.`
+                  : 'Belum ada pengguna terdaftar.'
           }
         />
       ) : (
@@ -273,12 +334,16 @@ export default function UsersPage() {
         />
       )}
 
-      {/* Modal edit peran */}
+      {/* Modal edit / verifikasi peran */}
       {editTarget && (
         <UserFormModal
           user={editTarget}
           onClose={() => setEditTarget(null)}
-          onSave={updateRole}
+          onSave={(userId, role) =>
+            !editTarget.school_id
+              ? verifyUser(userId, role).then(() => undefined)
+              : updateRole(userId, role)
+          }
         />
       )}
 

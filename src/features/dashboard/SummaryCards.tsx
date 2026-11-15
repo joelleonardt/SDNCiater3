@@ -61,19 +61,42 @@ function SummaryCard({ icon, label, value, iconBg = 'bg-primary/10' }: SummaryCa
  */
 export default function SummaryCards() {
   const profile = useAuthStore((s) => s.profile)
+  const profileLoading = useAuthStore((s) => s.profileLoading)
   const activeAcademicYear = useAppStore((s) => s.activeAcademicYear)
 
   const [summary, setSummary] = useState<DashboardSummary | null>(null)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    if (!profile?.school_id) return
+    if (!profile?.school_id) {
+      if (!profileLoading) {
+        setSummary(null)
+        setLoading(false)
+      }
+      return
+    }
 
+    let cancelled = false
     setLoading(true)
+    setError(null)
     getDashboardSummary(profile.school_id, activeAcademicYear?.id ?? null)
-      .then(setSummary)
-      .finally(() => setLoading(false))
-  }, [profile?.school_id, activeAcademicYear?.id])
+      .then((res) => {
+        if (!cancelled) setSummary(res)
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : 'Gagal memuat ringkasan.')
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [profile?.school_id, profileLoading, activeAcademicYear?.id])
 
   if (loading) {
     return (
@@ -87,6 +110,14 @@ export default function SummaryCards() {
         ))}
         <span className="sr-only">Memuat data ringkasan...</span>
       </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <p className="text-sm text-destructive" role="alert">
+        {error}
+      </p>
     )
   }
 
