@@ -25,7 +25,9 @@ const jadwalSchema = z
   .object({
     subject: z.string().min(1, 'Mata pelajaran wajib diisi').max(100, 'Maksimal 100 karakter'),
     day_of_week: z
-      .number({ invalid_type_error: 'Hari wajib dipilih' })
+      .number({
+        error: (iss) => (iss.code === 'invalid_type' ? 'Hari wajib dipilih' : undefined),
+      })
       .int()
       .min(1)
       .max(6),

@@ -24,7 +24,7 @@ const studentSchema = z.object({
     .min(1, 'NIS wajib diisi')
     .max(20, 'NIS maksimal 20 karakter'),
   gender: z.enum(['Laki-laki', 'Perempuan'], {
-    required_error: 'Jenis kelamin wajib dipilih',
+    error: 'Jenis kelamin wajib dipilih',
   }),
   date_of_birth: z
     .string()

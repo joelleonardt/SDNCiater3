@@ -16,8 +16,10 @@ const kelasSchema = z.object({
     .min(1, 'Nama kelas wajib diisi')
     .max(50, 'Nama kelas maksimal 50 karakter'),
   grade_level: z
-    .number({ invalid_type_error: 'Tingkat kelas wajib dipilih' })
-    .int()
+    .number({
+      error: (iss) => (iss.code === 'invalid_type' ? 'Tingkat kelas wajib dipilih' : undefined),
+    })
+    .int('Tingkat harus bilangan bulat')
     .min(1, 'Tingkat minimal 1')
     .max(12, 'Tingkat maksimal 12'),
   homeroom_teacher_id: z.string().optional(),

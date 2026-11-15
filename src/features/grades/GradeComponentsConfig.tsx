@@ -25,8 +25,10 @@ const componentSchema = z.object({
   components: z.array(
     z.object({
       name: z.string().min(1, 'Nama komponen wajib diisi').max(100, 'Maksimal 100 karakter'),
-      weight: z.coerce
-        .number({ invalid_type_error: 'Bobot wajib diisi' })
+      weight: z
+        .number({
+          error: (iss) => (iss.code === 'invalid_type' ? 'Bobot wajib diisi' : undefined),
+        })
         .int('Bobot harus bilangan bulat')
         .min(1, 'Minimal 1')
         .max(100, 'Maksimal 100'),

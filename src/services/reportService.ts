@@ -7,7 +7,7 @@ import { getAttendanceRecap } from './attendanceService'
 import { getStudentAttendanceSummary } from './studentService'
 import { getGradeScales } from './settingsService'
 import { supabase } from './supabase'
-import { printHTML } from '@/lib/pdfGenerator'
+import { escapeHtml, printHTML } from '@/lib/pdfGenerator'
 import { formatReportDate, formatNumber, scoreToLetter } from '@/lib/utils'
 import type { Student } from '@/types/database.types'
 
@@ -75,15 +75,15 @@ export async function generateAttendancePdf(
     throw new Error('Tidak ada data kehadiran untuk kelas dan rentang tanggal yang dipilih.')
   }
 
-  const className = classRes.data?.name ?? '—'
-  const schoolName = classRes.data?.schools?.name ?? 'Sekolah'
+  const className = escapeHtml(classRes.data?.name ?? '—')
+  const schoolName = escapeHtml(classRes.data?.schools?.name ?? 'Sekolah')
 
   const rows = recap
     .map(
       (r, i) => `
       <tr>
         <td style="text-align:center">${formatNumber(i + 1)}</td>
-        <td>${r.full_name}</td>
+        <td>${escapeHtml(r.full_name)}</td>
         <td style="text-align:center">${formatNumber(r.hadir)}</td>
         <td style="text-align:center">${formatNumber(r.sakit)}</td>
         <td style="text-align:center">${formatNumber(r.izin)}</td>
@@ -96,7 +96,7 @@ export async function generateAttendancePdf(
 
   const html = `
     <h1>${schoolName} — Laporan Kehadiran Siswa</h1>
-    <p class="meta">Kelas: ${className} | Periode: ${formatReportDate(startDate)} s/d ${formatReportDate(endDate)}</p>
+    <p class="meta">Kelas: ${className} | Periode: ${escapeHtml(formatReportDate(startDate))} s/d ${escapeHtml(formatReportDate(endDate))}</p>
     <table>
       <thead>
         <tr>
@@ -188,21 +188,21 @@ export async function generateReportCardPdf(
       : 0
   const hurufAkhir = scoreToLetter(nilaiAkhir, gradeScales)
 
-  const schoolName = student.schools?.name ?? 'Sekolah'
-  const schoolAddress = student.schools?.address ?? ''
-  const principalName = student.schools?.principal_name ?? 'Kepala Sekolah'
+  const schoolName = escapeHtml(student.schools?.name ?? 'Sekolah')
+  const schoolAddress = escapeHtml(student.schools?.address ?? '')
+  const principalName = escapeHtml(student.schools?.principal_name ?? 'Kepala Sekolah')
   const firstEnrollment = Array.isArray(student.class_students) ? student.class_students[0] : null
-  const className = firstEnrollment?.classes?.name ?? '—'
-  const homeroomTeacher = firstEnrollment?.classes?.profiles?.full_name ?? 'Wali Kelas'
-  const semesterName = semesterRes.data?.name ?? '—'
-  const academicYearName = semesterRes.data?.academic_years?.name ?? '—'
+  const className = escapeHtml(firstEnrollment?.classes?.name ?? '—')
+  const homeroomTeacher = escapeHtml(firstEnrollment?.classes?.profiles?.full_name ?? 'Wali Kelas')
+  const semesterName = escapeHtml(semesterRes.data?.name ?? '—')
+  const academicYearName = escapeHtml(semesterRes.data?.academic_years?.name ?? '—')
 
   const rows = grades
     .map(
       (g, i) => `
       <tr>
         <td style="text-align:center">${formatNumber(i + 1)}</td>
-        <td>${g.component_name}</td>
+        <td>${escapeHtml(g.component_name)}</td>
         <td style="text-align:center">${formatNumber(g.weight)}%</td>
         <td style="text-align:center">${formatNumber(g.score, 2)}</td>
       </tr>`
@@ -212,7 +212,7 @@ export async function generateReportCardPdf(
   const html = `
     <h1>${schoolName} — Rapor Siswa</h1>
     ${schoolAddress ? `<p class="meta">${schoolAddress}</p>` : ''}
-    <p><strong>Nama:</strong> ${student.full_name} &nbsp;|&nbsp; <strong>NIS:</strong> ${student.nis}</p>
+    <p><strong>Nama:</strong> ${escapeHtml(student.full_name)} &nbsp;|&nbsp; <strong>NIS:</strong> ${escapeHtml(student.nis)}</p>
     <p><strong>Kelas:</strong> ${className} &nbsp;|&nbsp; <strong>Tahun Ajaran:</strong> ${academicYearName} — Semester ${semesterName}</p>
     <table>
       <thead>
@@ -227,7 +227,7 @@ export async function generateReportCardPdf(
       <tfoot>
         <tr>
           <td colspan="3" style="text-align:right; font-weight:bold">Nilai Akhir / Predikat</td>
-          <td style="text-align:center; font-weight:bold">${formatNumber(nilaiAkhir, 2)} (${hurufAkhir})</td>
+          <td style="text-align:center; font-weight:bold">${formatNumber(nilaiAkhir, 2)} (${escapeHtml(hurufAkhir)})</td>
         </tr>
       </tfoot>
     </table>

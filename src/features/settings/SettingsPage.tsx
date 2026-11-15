@@ -49,14 +49,18 @@ const gradeScalesSchema = z.object({
   scales: z.array(
     z.object({
       id: z.string().optional(),
-      min_score: z.coerce
-        .number({ invalid_type_error: 'Angka wajib' })
-        .min(0)
-        .max(100),
-      max_score: z.coerce
-        .number({ invalid_type_error: 'Angka wajib' })
-        .min(0)
-        .max(100),
+      min_score: z
+        .number({
+          error: (iss) => (iss.code === 'invalid_type' ? 'Angka wajib' : undefined),
+        })
+        .min(0, 'Minimal 0')
+        .max(100, 'Maksimal 100'),
+      max_score: z
+        .number({
+          error: (iss) => (iss.code === 'invalid_type' ? 'Angka wajib' : undefined),
+        })
+        .min(0, 'Minimal 0')
+        .max(100, 'Maksimal 100'),
       letter: z.string().min(1, 'Wajib diisi').max(3),
     }),
   ),
@@ -581,7 +585,7 @@ function SkalaNilaiSection({ readOnly, gradeScales, saveGradeScales }: SkalaNila
                   min={0}
                   max={100}
                   disabled={readOnly}
-                  {...form.register(`scales.${index}.min_score`)}
+                  {...form.register(`scales.${index}.min_score`, { valueAsNumber: true })}
                   placeholder="0"
                   aria-label={`Nilai minimum baris ${index + 1}`}
                   aria-invalid={Boolean(form.formState.errors.scales?.[index]?.min_score)}
@@ -600,7 +604,7 @@ function SkalaNilaiSection({ readOnly, gradeScales, saveGradeScales }: SkalaNila
                   min={0}
                   max={100}
                   disabled={readOnly}
-                  {...form.register(`scales.${index}.max_score`)}
+                  {...form.register(`scales.${index}.max_score`, { valueAsNumber: true })}
                   placeholder="100"
                   aria-label={`Nilai maksimum baris ${index + 1}`}
                   aria-invalid={Boolean(form.formState.errors.scales?.[index]?.max_score)}

@@ -6,7 +6,7 @@ export const studentSchema = z.object({
   full_name: z.string().min(1, 'Nama lengkap wajib diisi'),
   nis: z.string().min(1, 'NIS wajib diisi'),
   gender: z.enum(['Laki-laki', 'Perempuan'], {
-    errorMap: () => ({ message: 'Jenis kelamin tidak valid' }),
+    error: 'Jenis kelamin tidak valid',
   }),
   date_of_birth: z.string().min(1, 'Tanggal lahir wajib diisi'),
   parent_name: z.string().optional(),
@@ -23,8 +23,10 @@ export const classSchema = z.object({
     .min(1, 'Nama kelas wajib diisi')
     .max(50, 'Nama kelas maksimal 50 karakter'),
   grade_level: z
-    .number({ invalid_type_error: 'Tingkat kelas harus berupa angka' })
-    .int()
+    .number({
+      error: (iss) => (iss.code === 'invalid_type' ? 'Tingkat kelas harus berupa angka' : undefined),
+    })
+    .int('Tingkat kelas harus bilangan bulat')
     .min(1, 'Tingkat kelas minimal 1')
     .max(12, 'Tingkat kelas maksimal 12'),
   homeroom_teacher_id: z.string().optional(),
@@ -49,7 +51,7 @@ export const academicYearSchema = z
     const second = Number(secondStr)
     if (second !== first + 1) {
       ctx.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: 'custom',
         path: ['name'],
         message: 'Tahun kedua harus tepat satu tahun setelah tahun pertama',
       })
@@ -76,7 +78,7 @@ export const registerSchema = z
       .max(100, 'Nama lengkap maksimal 100 karakter'),
     email: z.string().trim().email('Format email tidak valid'),
     role: z.enum(['Guru', 'Kepala_Sekolah', 'Staf_Admin'], {
-      errorMap: () => ({ message: 'Peran tidak valid' }),
+      error: 'Peran tidak valid',
     }),
     password: z
       .string()

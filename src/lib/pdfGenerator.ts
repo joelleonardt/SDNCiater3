@@ -74,6 +74,19 @@ const PRINT_STYLES = `
 `
 
 /**
+ * Escape karakter HTML khusus untuk mencegah HTML injection/XSS pada dokumen cetak.
+ */
+export function escapeHtml(value: unknown): string {
+  const str = value == null ? '' : String(value)
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
+/**
  * Buka jendela baru berisi HTML yang siap dicetak, lalu panggil window.print().
  */
 export function printHTML(html: string, title: string): void {
@@ -87,7 +100,7 @@ export function printHTML(html: string, title: string): void {
 <html lang="id">
 <head>
   <meta charset="UTF-8" />
-  <title>${title}</title>
+  <title>${escapeHtml(title)}</title>
   <style>${PRINT_STYLES}</style>
 </head>
 <body>
