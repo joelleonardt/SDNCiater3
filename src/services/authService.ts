@@ -1,4 +1,4 @@
-import type { AuthResponse, Session } from '@supabase/supabase-js'
+import type { AuthResponse, Session, User } from '@supabase/supabase-js'
 import type { Profile } from '@/types/database.types'
 import { supabase } from './supabase'
 
@@ -92,6 +92,66 @@ export async function signUp(
   const normalizedEmail = email.trim().toLowerCase()
   const trimmedName = fullName.trim()
 
+  // 1. Prioritaskan RPC SECURITY DEFINER register_user_no_email agar registrasi tidak mengirim email
+  //    dan verifikasi akun dilakukan 100% dari Dashboard Admin (bebas dari email rate limit).
+  const { data: rpcUserId, error: rpcError } = await db.rpc('register_user_no_email', {
+    p_email: normalizedEmail,
+    p_password: password,
+    p_full_name: trimmedName,
+    p_requested_role: desiredRole,
+  })
+
+  if (!rpcError && typeof rpcUserId === 'string' && rpcUserId.length > 0) {
+    setStoredRoleRequest(rpcUserId, desiredRole)
+    const syntheticUser = {
+      id: rpcUserId,
+      email: normalizedEmail,
+      aud: 'authenticated',
+      role: 'authenticated',
+      app_metadata: { provider: 'email', providers: ['email'] },
+      user_metadata: {
+        full_name: trimmedName,
+        role: 'Guru',
+        requested_role: desiredRole,
+      },
+      created_at: new Date().toISOString(),
+    } as unknown as User
+
+    return {
+      data: {
+        user: syntheticUser,
+        session: null,
+      },
+      error: null,
+    }
+  }
+
+  if (rpcError) {
+    const rpcMsg = (rpcError.message ?? '').toLowerCase()
+    const isMissingRpc =
+      rpcError.code === 'PGRST202' ||
+      rpcError.code === '42883' ||
+      rpcMsg.includes('could not find the function') ||
+      rpcMsg.includes('does not exist')
+
+    if (!isMissingRpc) {
+      const isDuplicate =
+        rpcMsg.includes('sudah terdaftar') ||
+        rpcMsg.includes('already registered') ||
+        rpcMsg.includes('unique') ||
+        rpcMsg.includes('exists')
+
+      throw makeServiceError(
+        'auth/sign-up-error',
+        rpcError.message,
+        isDuplicate
+          ? 'Email sudah terdaftar. Silakan masuk atau gunakan email lain.'
+          : rpcError.message
+      )
+    }
+  }
+
+  // 2. Fallback ke Supabase Auth signUp jika fungsi RPC belum dimigrasikan di database
   const result = await supabase.auth.signUp({
     email: normalizedEmail,
     password,
@@ -118,7 +178,7 @@ export async function signUp(
       isDuplicate
         ? 'Email sudah terdaftar. Silakan masuk atau gunakan email lain.'
         : isRateLimit
-          ? 'Terlalu banyak percobaan pendaftaran. Silakan tunggu beberapa saat.'
+          ? 'Batas pengiriman email Supabase terlampaui. Jalankan skrip terbaru supabase/sync_existing_db.sql di SQL Editor Supabase atau matikan "Confirm email" di Supabase Dashboard agar verifikasi cukup melalui Dashboard Admin.'
           : 'Gagal membuat akun baru. Silakan coba lagi.'
     )
   }

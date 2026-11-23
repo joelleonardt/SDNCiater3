@@ -332,9 +332,9 @@ export default function LoginPage() {
                             value={field.value}
                             onChange={field.onChange}
                           >
-                            <option value="Guru">Guru (Langsung Aktif)</option>
-                            <option value="Staf_Admin">Staf Admin (Perlu Verifikasi Dashboard Admin)</option>
-                            <option value="Kepala_Sekolah">Kepala Sekolah (Perlu Verifikasi Dashboard Admin)</option>
+                            <option value="Guru">Guru (Diverifikasi via Dashboard Admin)</option>
+                            <option value="Staf_Admin">Staf Admin (Diverifikasi via Dashboard Admin)</option>
+                            <option value="Kepala_Sekolah">Kepala Sekolah (Diverifikasi via Dashboard Admin)</option>
                           </select>
                         </FormControl>
                         <FormMessage />
@@ -411,7 +411,7 @@ export default function LoginPage() {
                   <div className="flex items-start gap-2 rounded-lg border bg-muted/40 p-3 text-xs text-muted-foreground">
                     <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
                     <span>
-                      Akun baru menunggu verifikasi <strong>Staf Admin</strong> (kecuali akun pertama sistem otomatis menjadi <strong>Staf Admin</strong>). Penetapan atau perubahan peran (<strong>Guru</strong>, <strong>Staf Admin</strong>, atau <strong>Kepala Sekolah</strong>) akan diverifikasi melalui <strong>Dashboard Admin</strong>.
+                      Verifikasi akun dilakukan langsung melalui <strong>Dashboard Admin</strong> tanpa perlu konfirmasi email. Akun baru menunggu persetujuan <strong>Staf Admin</strong> (kecuali akun pertama sistem otomatis menjadi <strong>Staf Admin</strong>).
                     </span>
                   </div>
 

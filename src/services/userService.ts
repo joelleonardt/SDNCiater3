@@ -106,7 +106,45 @@ export async function createUser(input: CreateUserInput): Promise<Profile> {
     throw new Error('Email sudah terdaftar oleh pengguna lain.')
   }
 
-  // 2. Buat akun di Supabase Auth via isolated client
+  // 2. Prioritaskan RPC SECURITY DEFINER admin_create_user agar akun langsung dibuat di database
+  //    tanpa mengirim email konfirmasi Supabase (bebas dari error "email rate limit exceeded").
+  const { data: rpcProfile, error: rpcError } = await db.rpc('admin_create_user', {
+    p_email: email,
+    p_password: input.password,
+    p_full_name: input.full_name.trim(),
+    p_role: input.role,
+    p_school_id: input.school_id,
+  })
+
+  if (!rpcError && rpcProfile) {
+    const row = Array.isArray(rpcProfile) ? rpcProfile[0] : rpcProfile
+    if (row && typeof row === 'object' && 'id' in row) {
+      return { ...(row as Profile), requested_role: null }
+    }
+  }
+
+  if (rpcError) {
+    const rpcMsg = (rpcError.message ?? '').toLowerCase()
+    const isMissingRpc =
+      rpcError.code === 'PGRST202' ||
+      rpcError.code === '42883' ||
+      rpcMsg.includes('could not find the function') ||
+      rpcMsg.includes('does not exist')
+
+    if (!isMissingRpc) {
+      if (
+        rpcMsg.includes('sudah terdaftar') ||
+        rpcMsg.includes('already registered') ||
+        rpcMsg.includes('unique') ||
+        rpcMsg.includes('exists')
+      ) {
+        throw new Error('Email sudah terdaftar oleh pengguna lain.')
+      }
+      throw new Error(rpcError.message)
+    }
+  }
+
+  // 3. Fallback ke Supabase Auth signUp jika fungsi RPC belum dimigrasikan di database
   const { data: authData, error: authError } = await isolatedAuthClient.auth.signUp({
     email,
     password: input.password,
@@ -124,6 +162,11 @@ export async function createUser(input: CreateUserInput): Promise<Profile> {
     const msg = authError.message.toLowerCase()
     if (msg.includes('already registered') || msg.includes('unique') || msg.includes('exists')) {
       throw new Error('Email sudah terdaftar oleh pengguna lain.')
+    }
+    if (msg.includes('rate limit') || authError.status === 429) {
+      throw new Error(
+        'Batas pengiriman email Supabase terlampaui (email rate limit exceeded). Jalankan skrip terbaru supabase/sync_existing_db.sql di SQL Editor Supabase atau matikan opsi "Confirm email" di Supabase Dashboard (Authentication → Providers → Email) agar pembuatan akun tidak mengirim email.'
+      )
     }
     throw new Error(authError.message)
   }

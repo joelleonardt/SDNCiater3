@@ -1021,3 +1021,299 @@ CREATE POLICY "admin_kepsek_notifications_insert" ON public.notifications
     AND sender_id = (SELECT auth.uid())
     AND public.get_my_role() IN ('Staf_Admin', 'Kepala_Sekolah')
   );
+
+-- ---------------------------------------------------------------------------
+-- 6. Pembuatan & Registrasi Akun Tanpa Kirim Email (Anti Email Rate Limit)
+--    Semua verifikasi akun baru dilakukan melalui Dashboard Admin, bukan email.
+-- ---------------------------------------------------------------------------
+CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA extensions;
+
+-- Backfill akun lama yang mungkin tertahan karena email_confirmed_at masih NULL
+UPDATE auth.users
+SET
+  email_confirmed_at = COALESCE(email_confirmed_at, now()),
+  confirmation_token = COALESCE(confirmation_token, ''),
+  email_change = COALESCE(email_change, ''),
+  email_change_token_new = COALESCE(email_change_token_new, ''),
+  recovery_token = COALESCE(recovery_token, '')
+WHERE email_confirmed_at IS NULL;
+
+-- Trigger BEFORE INSERT pada auth.users agar setiap pendaftaran otomatis email_confirmed_at = now()
+CREATE OR REPLACE FUNCTION public.auto_confirm_auth_user_email()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  IF NEW.email_confirmed_at IS NULL THEN
+    NEW.email_confirmed_at := now();
+  END IF;
+  NEW.confirmation_token := COALESCE(NEW.confirmation_token, '');
+  NEW.email_change := COALESCE(NEW.email_change, '');
+  NEW.email_change_token_new := COALESCE(NEW.email_change_token_new, '');
+  NEW.recovery_token := COALESCE(NEW.recovery_token, '');
+  NEW.raw_user_meta_data := COALESCE(NEW.raw_user_meta_data, '{}'::jsonb) || '{"email_verified": true}'::jsonb;
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS on_auth_user_auto_confirm ON auth.users;
+CREATE TRIGGER on_auth_user_auto_confirm
+  BEFORE INSERT ON auth.users
+  FOR EACH ROW EXECUTE FUNCTION public.auto_confirm_auth_user_email();
+
+-- RPC untuk Staf_Admin: Tambah Pengguna langsung aktif tanpa memicu pengiriman email Supabase
+CREATE OR REPLACE FUNCTION public.admin_create_user(
+  p_email text,
+  p_password text,
+  p_full_name text,
+  p_role text,
+  p_school_id uuid
+)
+RETURNS public.profiles
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, extensions
+SET row_security = off
+AS $$
+DECLARE
+  v_email text := lower(trim(p_email));
+  v_name text := trim(p_full_name);
+  v_user_id uuid := gen_random_uuid();
+  v_instance_id uuid;
+  v_profile public.profiles;
+BEGIN
+  IF auth.uid() IS NULL OR public.get_my_role() <> 'Staf_Admin' THEN
+    RAISE EXCEPTION 'Hanya Staf Admin yang dapat menambahkan pengguna secara langsung.';
+  END IF;
+
+  IF p_role NOT IN ('Guru', 'Kepala_Sekolah', 'Staf_Admin') THEN
+    RAISE EXCEPTION 'Peran tidak valid.';
+  END IF;
+
+  IF char_length(p_password) < 8 THEN
+    RAISE EXCEPTION 'Kata sandi minimal 8 karakter.';
+  END IF;
+
+  IF EXISTS (SELECT 1 FROM auth.users WHERE lower(email) = v_email)
+     OR EXISTS (SELECT 1 FROM public.profiles WHERE lower(email) = v_email) THEN
+    RAISE EXCEPTION 'Email sudah terdaftar oleh pengguna lain.';
+  END IF;
+
+  SELECT COALESCE(
+    (SELECT instance_id FROM auth.users LIMIT 1),
+    '00000000-0000-0000-0000-000000000000'::uuid
+  ) INTO v_instance_id;
+
+  INSERT INTO auth.users (
+    instance_id,
+    id,
+    aud,
+    role,
+    email,
+    encrypted_password,
+    email_confirmed_at,
+    raw_app_meta_data,
+    raw_user_meta_data,
+    created_at,
+    updated_at,
+    confirmation_token,
+    email_change,
+    email_change_token_new,
+    recovery_token,
+    is_sso_user,
+    is_anonymous
+  )
+  VALUES (
+    v_instance_id,
+    v_user_id,
+    'authenticated',
+    'authenticated',
+    v_email,
+    extensions.crypt(p_password, extensions.gen_salt('bf')),
+    now(),
+    '{"provider":"email","providers":["email"]}'::jsonb,
+    jsonb_build_object(
+      'sub', v_user_id::text,
+      'email', v_email,
+      'full_name', v_name,
+      'role', p_role,
+      'email_verified', true,
+      'phone_verified', false
+    ),
+    now(),
+    now(),
+    '',
+    '',
+    '',
+    '',
+    false,
+    false
+  );
+
+  INSERT INTO auth.identities (
+    id,
+    user_id,
+    provider_id,
+    identity_data,
+    provider,
+    last_sign_in_at,
+    created_at,
+    updated_at
+  )
+  VALUES (
+    gen_random_uuid(),
+    v_user_id,
+    v_user_id::text,
+    jsonb_build_object(
+      'sub', v_user_id::text,
+      'email', v_email,
+      'email_verified', true,
+      'phone_verified', false
+    ),
+    'email',
+    now(),
+    now(),
+    now()
+  );
+
+  INSERT INTO public.profiles (id, school_id, full_name, email, role, requested_role, is_active)
+  VALUES (v_user_id, p_school_id, v_name, v_email, p_role, NULL, true)
+  ON CONFLICT (id) DO UPDATE SET
+    school_id = EXCLUDED.school_id,
+    full_name = EXCLUDED.full_name,
+    email = EXCLUDED.email,
+    role = EXCLUDED.role,
+    requested_role = NULL,
+    is_active = true
+  RETURNING * INTO v_profile;
+
+  RETURN v_profile;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.admin_create_user(text, text, text, text, uuid) TO authenticated, service_role;
+
+-- RPC untuk Registrasi Mandiri di Halaman Login tanpa mengirim email (verifikasi via Dashboard Admin)
+CREATE OR REPLACE FUNCTION public.register_user_no_email(
+  p_email text,
+  p_password text,
+  p_full_name text,
+  p_requested_role text DEFAULT 'Guru'
+)
+RETURNS uuid
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, extensions
+SET row_security = off
+AS $$
+DECLARE
+  v_email text := lower(trim(p_email));
+  v_name text := trim(p_full_name);
+  v_req_role text := COALESCE(NULLIF(trim(p_requested_role), ''), 'Guru');
+  v_user_id uuid := gen_random_uuid();
+  v_instance_id uuid;
+BEGIN
+  IF v_email = '' OR position('@' in v_email) = 0 THEN
+    RAISE EXCEPTION 'Format email tidak valid.';
+  END IF;
+
+  IF char_length(p_password) < 8 THEN
+    RAISE EXCEPTION 'Kata sandi minimal 8 karakter.';
+  END IF;
+
+  IF v_req_role NOT IN ('Guru', 'Kepala_Sekolah', 'Staf_Admin') THEN
+    v_req_role := 'Guru';
+  END IF;
+
+  IF EXISTS (SELECT 1 FROM auth.users WHERE lower(email) = v_email)
+     OR EXISTS (SELECT 1 FROM public.profiles WHERE lower(email) = v_email) THEN
+    RAISE EXCEPTION 'Email sudah terdaftar. Silakan masuk atau gunakan email lain.';
+  END IF;
+
+  SELECT COALESCE(
+    (SELECT instance_id FROM auth.users LIMIT 1),
+    '00000000-0000-0000-0000-000000000000'::uuid
+  ) INTO v_instance_id;
+
+  -- Trigger on_auth_user_created (public.handle_new_user) akan otomatis membuat baris public.profiles
+  -- dengan status menunggu verifikasi Staf Admin di Dashboard Admin (school_id = NULL).
+  INSERT INTO auth.users (
+    instance_id,
+    id,
+    aud,
+    role,
+    email,
+    encrypted_password,
+    email_confirmed_at,
+    raw_app_meta_data,
+    raw_user_meta_data,
+    created_at,
+    updated_at,
+    confirmation_token,
+    email_change,
+    email_change_token_new,
+    recovery_token,
+    is_sso_user,
+    is_anonymous
+  )
+  VALUES (
+    v_instance_id,
+    v_user_id,
+    'authenticated',
+    'authenticated',
+    v_email,
+    extensions.crypt(p_password, extensions.gen_salt('bf')),
+    now(),
+    '{"provider":"email","providers":["email"]}'::jsonb,
+    jsonb_build_object(
+      'sub', v_user_id::text,
+      'email', v_email,
+      'full_name', v_name,
+      'role', 'Guru',
+      'requested_role', v_req_role,
+      'email_verified', true,
+      'phone_verified', false
+    ),
+    now(),
+    now(),
+    '',
+    '',
+    '',
+    '',
+    false,
+    false
+  );
+
+  INSERT INTO auth.identities (
+    id,
+    user_id,
+    provider_id,
+    identity_data,
+    provider,
+    last_sign_in_at,
+    created_at,
+    updated_at
+  )
+  VALUES (
+    gen_random_uuid(),
+    v_user_id,
+    v_user_id::text,
+    jsonb_build_object(
+      'sub', v_user_id::text,
+      'email', v_email,
+      'email_verified', true,
+      'phone_verified', false
+    ),
+    'email',
+    now(),
+    now(),
+    now()
+  );
+
+  RETURN v_user_id;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.register_user_no_email(text, text, text, text) TO anon, authenticated, service_role;
