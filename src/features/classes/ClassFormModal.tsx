@@ -4,28 +4,43 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import type { Class, Profile } from '@/types/database.types'
+
+const SD_GRADES = [1, 2, 3, 4, 5, 6] as const
+const SD_SECTIONS = ['A', 'B'] as const
+
+function extractSection(name?: string | null): 'A' | 'B' | '' {
+  if (!name) return ''
+  const upper = name.trim().toUpperCase()
+  if (upper.endsWith('A')) return 'A'
+  if (upper.endsWith('B')) return 'B'
+  return ''
+}
 
 // ─── Skema validasi ──────────────────────────────────────────────────────────
 
 const kelasSchema = z.object({
-  name: z
-    .string()
-    .min(1, 'Nama kelas wajib diisi')
-    .max(50, 'Nama kelas maksimal 50 karakter'),
   grade_level: z
     .number({
-      error: (iss) => (iss.code === 'invalid_type' ? 'Tingkat kelas wajib dipilih' : undefined),
+      error: (iss) => (iss.code === 'invalid_type' ? 'Kelas wajib dipilih' : undefined),
     })
-    .int('Tingkat harus bilangan bulat')
-    .min(1, 'Tingkat minimal 1')
-    .max(12, 'Tingkat maksimal 12'),
+    .int('Kelas harus bilangan bulat')
+    .min(1, 'Kelas minimal 1')
+    .max(6, 'Kelas maksimal 6'),
+  section: z.enum(['A', 'B'], {
+    error: 'Tingkat kelas (A / B) wajib dipilih',
+  }),
   homeroom_teacher_id: z.string().optional(),
 })
 
-type KelasForm = z.infer<typeof kelasSchema>
+type KelasFormInput = z.infer<typeof kelasSchema>
+
+export interface KelasSubmitData {
+  name: string
+  grade_level: number
+  homeroom_teacher_id?: string
+}
 
 // ─── Props ───────────────────────────────────────────────────────────────────
 
@@ -39,15 +54,16 @@ export interface ClassFormModalProps {
   /** Apakah form sedang disubmit */
   isSubmitting: boolean
   /** Dipanggil saat user klik Simpan dengan data yang valid */
-  onSubmit: (data: KelasForm) => void
+  onSubmit: (data: KelasSubmitData) => void
   /** Dipanggil saat user klik Batal atau tutup */
   onCancel: () => void
 }
 
 /**
- * Modal form tambah/edit kelas.
- * - Fields: nama kelas, tingkat kelas (select 1–12), wali kelas (select dari akun Guru aktif)
- * - Validasi: nama max 50 karakter, tingkat 1–12
+ * Modal form tambah/edit kelas SD.
+ * - Pilih Kelas: 1–6
+ * - Tingkat Kelas: A atau B
+ * - Wali Kelas: select dari akun Guru aktif
  * Requirements: 5.1, 5.2, 5.3, 5.4
  */
 export default function ClassFormModal({
@@ -64,14 +80,22 @@ export default function ClassFormModal({
     register,
     handleSubmit,
     formState: { errors },
-  } = useForm<KelasForm>({
+  } = useForm<KelasFormInput>({
     resolver: zodResolver(kelasSchema),
     defaultValues: {
-      name: initialData?.name ?? '',
       grade_level: initialData?.grade_level ?? undefined,
+      section: (extractSection(initialData?.name) || undefined) as 'A' | 'B' | undefined,
       homeroom_teacher_id: initialData?.homeroom_teacher_id ?? '',
     },
   })
+
+  function handleFormValid(values: KelasFormInput) {
+    onSubmit({
+      name: `${values.grade_level}${values.section}`,
+      grade_level: values.grade_level,
+      homeroom_teacher_id: values.homeroom_teacher_id,
+    })
+  }
 
   // Tutup saat Escape
   React.useEffect(() => {
@@ -116,7 +140,7 @@ export default function ClassFormModal({
         </div>
 
         {/* Form */}
-        <form onSubmit={handleSubmit(onSubmit)} noValidate>
+        <form onSubmit={handleSubmit(handleFormValid)} noValidate>
           <div className="space-y-4 px-6 py-5">
             {serverError && (
               <p role="alert" className="rounded-md bg-destructive/10 px-3 py-2 text-xs text-destructive">
@@ -124,33 +148,14 @@ export default function ClassFormModal({
               </p>
             )}
 
-            {/* Nama Kelas */}
-            <div className="space-y-1.5">
-              <Label htmlFor="class-name">
-                Nama Kelas <span aria-hidden="true" className="text-destructive">*</span>
-              </Label>
-              <Input
-                id="class-name"
-                placeholder="Contoh: VII A"
-                autoFocus
-                aria-invalid={!!errors.name}
-                aria-describedby={errors.name ? 'class-name-error' : undefined}
-                {...register('name')}
-              />
-              {errors.name && (
-                <p id="class-name-error" role="alert" className="text-xs text-destructive">
-                  {errors.name.message}
-                </p>
-              )}
-            </div>
-
-            {/* Tingkat Kelas */}
+            {/* Pilih Kelas (1 - 6) */}
             <div className="space-y-1.5">
               <Label htmlFor="grade-level">
-                Tingkat Kelas <span aria-hidden="true" className="text-destructive">*</span>
+                Pilih Kelas <span aria-hidden="true" className="text-destructive">*</span>
               </Label>
               <select
                 id="grade-level"
+                autoFocus
                 aria-invalid={!!errors.grade_level}
                 aria-describedby={errors.grade_level ? 'grade-level-error' : undefined}
                 className={cn(
@@ -160,16 +165,46 @@ export default function ClassFormModal({
                 )}
                 {...register('grade_level', { valueAsNumber: true })}
               >
-                <option value="">-- Pilih tingkat --</option>
-                {Array.from({ length: 12 }, (_, i) => i + 1).map((lvl) => (
+                <option value="">-- Pilih kelas --</option>
+                {SD_GRADES.map((lvl) => (
                   <option key={lvl} value={lvl}>
-                    Tingkat {lvl}
+                    Kelas {lvl}
                   </option>
                 ))}
               </select>
               {errors.grade_level && (
                 <p id="grade-level-error" role="alert" className="text-xs text-destructive">
                   {errors.grade_level.message}
+                </p>
+              )}
+            </div>
+
+            {/* Tingkat Kelas (A / B) */}
+            <div className="space-y-1.5">
+              <Label htmlFor="class-section">
+                Tingkat Kelas <span aria-hidden="true" className="text-destructive">*</span>
+              </Label>
+              <select
+                id="class-section"
+                aria-invalid={!!errors.section}
+                aria-describedby={errors.section ? 'class-section-error' : undefined}
+                className={cn(
+                  'flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm',
+                  'ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
+                  'disabled:cursor-not-allowed disabled:opacity-50',
+                )}
+                {...register('section')}
+              >
+                <option value="">-- Pilih tingkat --</option>
+                {SD_SECTIONS.map((sec) => (
+                  <option key={sec} value={sec}>
+                    {sec}
+                  </option>
+                ))}
+              </select>
+              {errors.section && (
+                <p id="class-section-error" role="alert" className="text-xs text-destructive">
+                  {errors.section.message}
                 </p>
               )}
             </div>

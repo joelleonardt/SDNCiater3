@@ -112,13 +112,16 @@ export default function ClassesPage() {
     () => [
       {
         key: 'name',
-        header: 'Nama Kelas',
-        cell: (row) => <span className="font-medium">{row.name}</span>,
+        header: 'Kelas',
+        cell: (row) => <span className="font-medium">Kelas {row.name}</span>,
       },
       {
         key: 'grade_level',
         header: 'Tingkat',
-        cell: (row) => `Tingkat ${row.grade_level}`,
+        cell: (row) => {
+          const section = row.name.replace(/^\d+\s*/, '').trim()
+          return section || `Kelas ${row.grade_level}`
+        },
         className: 'w-28',
       },
       {
