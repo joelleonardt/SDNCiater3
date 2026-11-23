@@ -311,7 +311,67 @@ CREATE INDEX idx_grade_scales_school_id ON grade_scales (school_id);
 
 
 -- ---------------------------------------------------------------------------
--- 14. Trigger Otomatis Profil Pengguna Baru (auth.users -> profiles)
+-- 14. daily_journals
+--     Jurnal harian mengajar guru yang dapat ditinjau (Disetujui / Ditolak)
+--     oleh Kepala Sekolah dan dipantau oleh Staf Admin.
+--     Bergantung pada: schools, profiles, classes
+-- ---------------------------------------------------------------------------
+CREATE TABLE daily_journals (
+  id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  school_id    uuid NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+  teacher_id   uuid NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  class_id     uuid NOT NULL REFERENCES classes(id) ON DELETE CASCADE,
+  journal_date date NOT NULL,
+  subject      text NOT NULL CHECK (char_length(subject) BETWEEN 1 AND 100),
+  topic        text NOT NULL CHECK (char_length(topic) BETWEEN 1 AND 255),
+  activities   text NOT NULL CHECK (char_length(activities) BETWEEN 1 AND 2000),
+  status       text NOT NULL DEFAULT 'Menunggu_Tinjauan'
+                 CHECK (status IN ('Menunggu_Tinjauan','Disetujui','Ditolak')),
+  reviewer_id  uuid REFERENCES profiles(id) ON DELETE SET NULL,
+  review_notes text CHECK (review_notes IS NULL OR char_length(review_notes) <= 1000),
+  reviewed_at  timestamptz,
+  created_at   timestamptz NOT NULL DEFAULT now(),
+  updated_at   timestamptz NOT NULL DEFAULT now()
+);
+
+ALTER TABLE daily_journals ENABLE ROW LEVEL SECURITY;
+
+-- Index
+CREATE INDEX idx_daily_journals_school_date  ON daily_journals (school_id, journal_date DESC);
+CREATE INDEX idx_daily_journals_teacher_date ON daily_journals (teacher_id, journal_date DESC);
+CREATE INDEX idx_daily_journals_class_id     ON daily_journals (class_id);
+CREATE INDEX idx_daily_journals_status       ON daily_journals (status);
+
+
+-- ---------------------------------------------------------------------------
+-- 15. notifications
+--     Notifikasi in-app untuk guru (pengingat pengisian jurnal harian dari
+--     Staf Admin dan hasil tinjauan jurnal dari Kepala Sekolah).
+--     Bergantung pada: schools, profiles, daily_journals
+-- ---------------------------------------------------------------------------
+CREATE TABLE notifications (
+  id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  school_id    uuid NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+  recipient_id uuid NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  sender_id    uuid REFERENCES profiles(id) ON DELETE SET NULL,
+  type         text NOT NULL CHECK (type IN ('Pengingat_Jurnal','Tinjauan_Jurnal')),
+  title        text NOT NULL CHECK (char_length(title) BETWEEN 1 AND 150),
+  message      text NOT NULL CHECK (char_length(message) BETWEEN 1 AND 500),
+  target_date  date,
+  journal_id   uuid REFERENCES daily_journals(id) ON DELETE SET NULL,
+  is_read      boolean NOT NULL DEFAULT false,
+  created_at   timestamptz NOT NULL DEFAULT now()
+);
+
+ALTER TABLE notifications ENABLE ROW LEVEL SECURITY;
+
+-- Index
+CREATE INDEX idx_notifications_recipient_unread ON notifications (recipient_id, is_read, created_at DESC);
+CREATE INDEX idx_notifications_school_date      ON notifications (school_id, created_at DESC);
+
+
+-- ---------------------------------------------------------------------------
+-- 16. Trigger Otomatis Profil Pengguna Baru (auth.users -> profiles)
 --     Memudahkan pembuatan akun langsung via UI / Supabase Auth.
 -- ---------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.handle_new_user()

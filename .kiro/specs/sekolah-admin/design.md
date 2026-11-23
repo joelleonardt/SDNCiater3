@@ -986,3 +986,30 @@ Integration test (menggunakan Supabase sandbox atau `msw` untuk mock HTTP) digun
 ### Testing UI
 
 Komponen seperti `<DataTable>`, `<ConfirmDialog>`, dan `<Toast>` diuji dengan React Testing Library untuk memverifikasi rendering dan interaksi user.
+
+---
+
+## Fitur Jurnal Harian Guru, Tinjauan Kepala Sekolah & Notifikasi Pengingat (Requirement 17)
+
+### Skema Tabel Database Tambahan
+
+1. **`daily_journals`**:
+   - Menyimpan jurnal mengajar harian yang dibuat oleh `Guru` (`school_id`, `teacher_id`, `class_id`, `journal_date`, `subject`, `topic`, `activities`) beserta status tinjauan Kepala Sekolah (`status`: `'Menunggu_Tinjauan' | 'Disetujui' | 'Ditolak'`, `reviewer_id`, `review_notes`, `reviewed_at`).
+   - RLS:
+     - `Guru`: SELECT, INSERT, UPDATE jurnal miliknya sendiri, serta DELETE selama `status <> 'Disetujui'`.
+     - `Kepala_Sekolah`: SELECT seluruh jurnal di sekolahnya dan UPDATE status tinjauan (`Disetujui` / `Ditolak` + `review_notes`).
+     - `Staf_Admin`: SELECT seluruh jurnal di sekolahnya untuk keperluan pantauan kepatuhan pengisian jurnal.
+
+2. **`notifications`**:
+   - Menyimpan notifikasi in-app (`recipient_id`, `sender_id`, `type`: `'Pengingat_Jurnal' | 'Tinjauan_Jurnal'`, `title`, `message`, `target_date`, `journal_id`, `is_read`).
+   - Ditampilkan pada `JournalReminderBanner` di Dashboard Guru serta dropdown ikon lonceng (`<Bell />`) di `Topbar.tsx`.
+
+### Catatan & Opsi Arsitektur Opsional (Belum Dimasukkan ke dalam Sistem): Kanal Notifikasi Luar-Web
+
+Sebagai catatan desain untuk iterasi mendatang, pengiriman notifikasi di luar tampilan web in-app dapat diperluas secara bertahap dengan 3 opsi berikut (saat ini **tidak/belum diimplementasikan ke dalam kode produksi** sesuai keputusan desain):
+
+| Opsi Opsional | Metode | Kebutuhan API Key | Cara Kerja & Kelebihan |
+|---|---|---|---|
+| **Opsi A** | **Browser Native Notification (`window.Notification` API)** | **Tidak perlu API Key** | Meminta izin `Notification.requestPermission()` di browser Guru; memunculkan pop-up OS saat ada notifikasi baru di tab latar belakang. |
+| **Opsi B** | **WhatsApp Click-to-Chat Deep-Link (`wa.me`)** | **Tidak perlu API Key** | Tombol sekunder di tabel pantauan Admin yang membuka `https://wa.me/<no_hp>?text=...` berisi pesan pengingat jurnal harian siap kirim. |
+| **Opsi C** | **Web Push (VAPID) / Email via Supabase Edge Function** | **VAPID Key Pair (Gratis) / 1 API Key Email (Resend)** | Mengirim push notification latar belakang atau email pengingat otomatis melalui Supabase Edge Function jika diperlukan otomatisasi penuh. |

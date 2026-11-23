@@ -321,7 +321,7 @@ BEGIN
       AND tablename IN (
         'schools', 'profiles', 'academic_years', 'semesters', 'classes',
         'students', 'class_students', 'attendance', 'schedules', 'notes',
-        'grade_components', 'grades', 'grade_scales'
+        'grade_components', 'grades', 'grade_scales', 'daily_journals', 'notifications'
       )
   LOOP
     EXECUTE format('DROP POLICY IF EXISTS %I ON %I.%I;', pol.policyname, pol.schemaname, pol.tablename);
@@ -895,3 +895,129 @@ CREATE POLICY "admin_grade_scales_update" ON public.grade_scales
 
 CREATE POLICY "admin_grade_scales_delete" ON public.grade_scales
   FOR DELETE USING (school_id = public.get_my_school_id() AND public.get_my_role() = 'Staf_Admin');
+
+-- ---------------------------------------------------------------------------
+-- 5.14 daily_journals & 5.15 notifications (Jurnal Harian Guru & Pengingat)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.daily_journals (
+  id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  school_id    uuid NOT NULL REFERENCES public.schools(id) ON DELETE CASCADE,
+  teacher_id   uuid NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  class_id     uuid NOT NULL REFERENCES public.classes(id) ON DELETE CASCADE,
+  journal_date date NOT NULL,
+  subject      text NOT NULL CHECK (char_length(subject) BETWEEN 1 AND 100),
+  topic        text NOT NULL CHECK (char_length(topic) BETWEEN 1 AND 255),
+  activities   text NOT NULL CHECK (char_length(activities) BETWEEN 1 AND 2000),
+  status       text NOT NULL DEFAULT 'Menunggu_Tinjauan'
+                 CHECK (status IN ('Menunggu_Tinjauan','Disetujui','Ditolak')),
+  reviewer_id  uuid REFERENCES public.profiles(id) ON DELETE SET NULL,
+  review_notes text CHECK (review_notes IS NULL OR char_length(review_notes) <= 1000),
+  reviewed_at  timestamptz,
+  created_at   timestamptz NOT NULL DEFAULT now(),
+  updated_at   timestamptz NOT NULL DEFAULT now()
+);
+
+ALTER TABLE public.daily_journals ENABLE ROW LEVEL SECURITY;
+
+CREATE INDEX IF NOT EXISTS idx_daily_journals_school_date  ON public.daily_journals (school_id, journal_date DESC);
+CREATE INDEX IF NOT EXISTS idx_daily_journals_teacher_date ON public.daily_journals (teacher_id, journal_date DESC);
+CREATE INDEX IF NOT EXISTS idx_daily_journals_class_id     ON public.daily_journals (class_id);
+CREATE INDEX IF NOT EXISTS idx_daily_journals_status       ON public.daily_journals (status);
+
+CREATE POLICY "guru_daily_journals_select" ON public.daily_journals
+  FOR SELECT USING (
+    school_id = public.get_my_school_id()
+    AND teacher_id = (SELECT auth.uid())
+    AND public.get_my_role() = 'Guru'
+  );
+
+CREATE POLICY "guru_daily_journals_insert" ON public.daily_journals
+  FOR INSERT WITH CHECK (
+    school_id = public.get_my_school_id()
+    AND teacher_id = (SELECT auth.uid())
+    AND public.get_my_role() = 'Guru'
+  );
+
+CREATE POLICY "guru_daily_journals_update" ON public.daily_journals
+  FOR UPDATE
+  USING (
+    school_id = public.get_my_school_id()
+    AND teacher_id = (SELECT auth.uid())
+    AND public.get_my_role() = 'Guru'
+  )
+  WITH CHECK (
+    school_id = public.get_my_school_id()
+    AND teacher_id = (SELECT auth.uid())
+    AND public.get_my_role() = 'Guru'
+  );
+
+CREATE POLICY "guru_daily_journals_delete" ON public.daily_journals
+  FOR DELETE USING (
+    school_id = public.get_my_school_id()
+    AND teacher_id = (SELECT auth.uid())
+    AND status <> 'Disetujui'
+    AND public.get_my_role() = 'Guru'
+  );
+
+CREATE POLICY "kepsek_daily_journals_select" ON public.daily_journals
+  FOR SELECT USING (
+    school_id = public.get_my_school_id()
+    AND public.get_my_role() = 'Kepala_Sekolah'
+  );
+
+CREATE POLICY "kepsek_daily_journals_update" ON public.daily_journals
+  FOR UPDATE
+  USING (
+    school_id = public.get_my_school_id()
+    AND public.get_my_role() = 'Kepala_Sekolah'
+  )
+  WITH CHECK (
+    school_id = public.get_my_school_id()
+    AND public.get_my_role() = 'Kepala_Sekolah'
+  );
+
+CREATE POLICY "admin_daily_journals_select" ON public.daily_journals
+  FOR SELECT USING (
+    school_id = public.get_my_school_id()
+    AND public.get_my_role() = 'Staf_Admin'
+  );
+
+CREATE TABLE IF NOT EXISTS public.notifications (
+  id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  school_id    uuid NOT NULL REFERENCES public.schools(id) ON DELETE CASCADE,
+  recipient_id uuid NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  sender_id    uuid REFERENCES public.profiles(id) ON DELETE SET NULL,
+  type         text NOT NULL CHECK (type IN ('Pengingat_Jurnal','Tinjauan_Jurnal')),
+  title        text NOT NULL CHECK (char_length(title) BETWEEN 1 AND 150),
+  message      text NOT NULL CHECK (char_length(message) BETWEEN 1 AND 500),
+  target_date  date,
+  journal_id   uuid REFERENCES public.daily_journals(id) ON DELETE SET NULL,
+  is_read      boolean NOT NULL DEFAULT false,
+  created_at   timestamptz NOT NULL DEFAULT now()
+);
+
+ALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY;
+
+CREATE INDEX IF NOT EXISTS idx_notifications_recipient_unread ON public.notifications (recipient_id, is_read, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_notifications_school_date      ON public.notifications (school_id, created_at DESC);
+
+CREATE POLICY "recipient_notifications_select" ON public.notifications
+  FOR SELECT USING (recipient_id = (SELECT auth.uid()));
+
+CREATE POLICY "recipient_notifications_update" ON public.notifications
+  FOR UPDATE
+  USING (recipient_id = (SELECT auth.uid()))
+  WITH CHECK (recipient_id = (SELECT auth.uid()));
+
+CREATE POLICY "admin_kepsek_notifications_select" ON public.notifications
+  FOR SELECT USING (
+    school_id = public.get_my_school_id()
+    AND public.get_my_role() IN ('Staf_Admin', 'Kepala_Sekolah')
+  );
+
+CREATE POLICY "admin_kepsek_notifications_insert" ON public.notifications
+  FOR INSERT WITH CHECK (
+    school_id = public.get_my_school_id()
+    AND sender_id = (SELECT auth.uid())
+    AND public.get_my_role() IN ('Staf_Admin', 'Kepala_Sekolah')
+  );

@@ -4,6 +4,7 @@ import {
   BookOpen,
   CalendarCheck,
   CalendarDays,
+  ClipboardList,
   BarChart3,
   FileText,
   UserCog,
@@ -64,6 +65,12 @@ const NAV_ITEMS: NavItem[] = [
     label: 'Jadwal',
     path: '/schedules',
     icon: CalendarDays,
+    allowedRoles: ['Guru', 'Kepala_Sekolah', 'Staf_Admin'],
+  },
+  {
+    label: 'Jurnal Harian',
+    path: '/journals',
+    icon: ClipboardList,
     allowedRoles: ['Guru', 'Kepala_Sekolah', 'Staf_Admin'],
   },
   {

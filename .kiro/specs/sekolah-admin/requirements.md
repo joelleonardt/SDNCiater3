@@ -298,3 +298,34 @@ Aplikasi dibangun di atas stack React + Vite (frontend), Tailwind CSS + shadcn/u
 3. THE Sekolah_Admin SHALL isolate all Supabase client initialization and query functions in `src/services/` or `src/lib/` — no direct import or invocation of the Supabase client outside these directories in any React component file.
 4. THE Sekolah_Admin SHALL limit each file to one primary exported component or function; private helper functions and constants used only within the same file are permitted.
 5. THE Sekolah_Admin SHALL use Zustand or React Context for any state shared across two or more feature domains or routes (including authenticated user, active academic year, and theme), and SHALL NOT rely on prop-drilling beyond two component levels for such shared state.
+
+---
+
+### Requirement 17: Jurnal Harian Guru, Tinjauan Kepala Sekolah, dan Pengingat In-App
+
+**User Story:** Sebagai Guru, saya ingin membuat jurnal mengajar harian yang dapat ditinjau (diterima atau ditolak) oleh Kepala_Sekolah, sementara Staf_Admin dapat memantau kepatuhan pengisian jurnal dan mengirimkan notifikasi pengingat kepada Guru yang belum mengisi.
+
+#### Acceptance Criteria
+
+1. THE Sekolah_Admin SHALL provide a "Jurnal Harian" (`/journals`) page accessible to `Guru`, `Kepala_Sekolah`, and `Staf_Admin`.
+2. WHEN a `Guru` creates or edits a daily journal, THE Sekolah_Admin SHALL require `journal_date` (not in the future), `class_id`, `subject` (1–100 characters), `topic` (1–255 characters), and `activities` (1–2000 characters), and SHALL save the record with status `Menunggu_Tinjauan`.
+3. WHEN a `Kepala_Sekolah` reviews a daily journal, THE Sekolah_Admin SHALL allow approving (`Disetujui`) with optional review notes or rejecting (`Ditolak`) with mandatory review notes (`review_notes`), and SHALL automatically create an in-app notification (`Tinjauan_Jurnal`) for the `Guru` who authored the journal.
+4. WHEN a daily journal has status `Ditolak`, THE Sekolah_Admin SHALL display the `Kepala_Sekolah`'s review notes to the `Guru` and allow the `Guru` to revise and resubmit the journal back to `Menunggu_Tinjauan`.
+5. WHEN a `Staf_Admin` or `Kepala_Sekolah` opens the "Pantauan & Pengingat Guru" tab for a selected date, THE Sekolah_Admin SHALL display all active `Guru` in the school along with their journal submission status (`Sudah Mengisi` or `Belum Mengisi`) for that date.
+6. WHEN a `Staf_Admin` or `Kepala_Sekolah` clicks "Kirim Pengingat" for an individual `Guru` or "Ingatkan Semua yang Belum Mengisi", THE Sekolah_Admin SHALL create an in-app notification (`Pengingat_Jurnal`) targeted to the respective `Guru`(s).
+7. WHEN a `Guru` logs in or opens the Dashboard, THE Sekolah_Admin SHALL display an in-app reminder banner on the Dashboard (if today's journal has not been submitted or unread journal notifications exist) as well as unread notification items in the Topbar notification bell dropdown.
+
+#### Catatan & Opsi Pengembangan Opsional (Belum Dimasukkan ke dalam Sistem): Kanal Notifikasi Luar-Web
+
+> **Catatan Arsitektur (Opsional / Future Enhancement):** Saat ini notifikasi pengingat jurnal harian dan hasil tinjauan Kepala Sekolah diimplementasikan sebagai **In-App Web Notification** (Banner Dashboard Guru & Dropdown Lonceng Topbar). Berikut adalah opsi metode notifikasi tambahan yang ringan, tidak berlebihan, dan hemat/tanpa API key yang dicatat sebagai **opsional** untuk pengembangan berikutnya (belum diaktifkan di dalam kode sistem):
+>
+> 1. **Opsi Opsional A — Browser Native Notification API (`window.Notification`) + Supabase Realtime (Tanpa API Key):**
+>    - Menggunakan Web Notification API standar browser (`Notification.requestPermission()`).
+>    - Saat tab browser Guru sedang terbuka di latar belakang (*background tab*) dan baris baru masuk ke tabel `notifications`, browser menampilkan notifikasi sistem operasi (Windows/Android/macOS) tanpa memerlukan layanan pihak ketiga atau API key.
+> 2. **Opsi Opsional B — Tombol *Quick-Remind* WhatsApp Deep-Link (`https://wa.me/`) (Tanpa API Key & Tanpa Biaya):**
+>    - Menyediakan tombol opsional *"Ingatkan via WhatsApp"* di samping tombol *"Kirim Pengingat In-App"* pada tabel pantauan Staf Admin.
+>    - Membuka tautan `https://wa.me/<nomor_hp_guru>?text=...` dengan teks pengingat sopan yang sudah terisi otomatis, sehingga Staf Admin dapat mengingatkan Guru yang sedang tidak membuka browser tanpa memerlukan WhatsApp Business API key atau bot berbayar.
+> 3. **Opsi Opsional C — Web Push Notification (PWA Service Worker + VAPID Key) atau Email Pengingat (Supabase Edge Function + Resend API Key):**
+>    - Jika di masa depan sekolah membutuhkan pengiriman notifikasi otomatis di luar browser tanpa interaksi manual:
+>      - **Web Push (VAPID)**: memakai pasangan kunci VAPID gratis standar W3C Push API melalui Supabase Edge Function.
+>      - **Email Pengingat**: memakai 1 API key layanan email transaksional (misalnya *Resend* free tier) yang dipanggil dari Supabase Edge Function.

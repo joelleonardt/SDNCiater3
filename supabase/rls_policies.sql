@@ -23,7 +23,7 @@ BEGIN
       AND tablename IN (
         'schools', 'profiles', 'academic_years', 'semesters', 'classes',
         'students', 'class_students', 'attendance', 'schedules', 'notes',
-        'grade_components', 'grades', 'grade_scales'
+        'grade_components', 'grades', 'grade_scales', 'daily_journals', 'notifications'
       )
   LOOP
     EXECUTE format('DROP POLICY IF EXISTS %I ON %I.%I;', pol.policyname, pol.schemaname, pol.tablename);
@@ -954,4 +954,107 @@ CREATE POLICY "admin_grade_scales_delete" ON grade_scales
   FOR DELETE
   USING (
     school_id = public.get_my_school_id() AND public.get_my_role() = 'Staf_Admin'
+  );
+
+
+-- =============================================================================
+-- 14. daily_journals
+-- =============================================================================
+
+CREATE POLICY "guru_daily_journals_select" ON daily_journals
+  FOR SELECT
+  USING (
+    school_id = public.get_my_school_id()
+    AND teacher_id = (SELECT auth.uid())
+    AND public.get_my_role() = 'Guru'
+  );
+
+CREATE POLICY "guru_daily_journals_insert" ON daily_journals
+  FOR INSERT
+  WITH CHECK (
+    school_id = public.get_my_school_id()
+    AND teacher_id = (SELECT auth.uid())
+    AND public.get_my_role() = 'Guru'
+  );
+
+CREATE POLICY "guru_daily_journals_update" ON daily_journals
+  FOR UPDATE
+  USING (
+    school_id = public.get_my_school_id()
+    AND teacher_id = (SELECT auth.uid())
+    AND public.get_my_role() = 'Guru'
+  )
+  WITH CHECK (
+    school_id = public.get_my_school_id()
+    AND teacher_id = (SELECT auth.uid())
+    AND public.get_my_role() = 'Guru'
+  );
+
+CREATE POLICY "guru_daily_journals_delete" ON daily_journals
+  FOR DELETE
+  USING (
+    school_id = public.get_my_school_id()
+    AND teacher_id = (SELECT auth.uid())
+    AND status <> 'Disetujui'
+    AND public.get_my_role() = 'Guru'
+  );
+
+CREATE POLICY "kepsek_daily_journals_select" ON daily_journals
+  FOR SELECT
+  USING (
+    school_id = public.get_my_school_id()
+    AND public.get_my_role() = 'Kepala_Sekolah'
+  );
+
+CREATE POLICY "kepsek_daily_journals_update" ON daily_journals
+  FOR UPDATE
+  USING (
+    school_id = public.get_my_school_id()
+    AND public.get_my_role() = 'Kepala_Sekolah'
+  )
+  WITH CHECK (
+    school_id = public.get_my_school_id()
+    AND public.get_my_role() = 'Kepala_Sekolah'
+  );
+
+CREATE POLICY "admin_daily_journals_select" ON daily_journals
+  FOR SELECT
+  USING (
+    school_id = public.get_my_school_id()
+    AND public.get_my_role() = 'Staf_Admin'
+  );
+
+
+-- =============================================================================
+-- 15. notifications
+-- =============================================================================
+
+CREATE POLICY "recipient_notifications_select" ON notifications
+  FOR SELECT
+  USING (
+    recipient_id = (SELECT auth.uid())
+  );
+
+CREATE POLICY "recipient_notifications_update" ON notifications
+  FOR UPDATE
+  USING (
+    recipient_id = (SELECT auth.uid())
+  )
+  WITH CHECK (
+    recipient_id = (SELECT auth.uid())
+  );
+
+CREATE POLICY "admin_kepsek_notifications_select" ON notifications
+  FOR SELECT
+  USING (
+    school_id = public.get_my_school_id()
+    AND public.get_my_role() IN ('Staf_Admin', 'Kepala_Sekolah')
+  );
+
+CREATE POLICY "admin_kepsek_notifications_insert" ON notifications
+  FOR INSERT
+  WITH CHECK (
+    school_id = public.get_my_school_id()
+    AND sender_id = (SELECT auth.uid())
+    AND public.get_my_role() IN ('Staf_Admin', 'Kepala_Sekolah')
   );

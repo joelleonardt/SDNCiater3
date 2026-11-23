@@ -64,6 +64,11 @@ const SchedulesPage = lazy(() =>
     default: () => <PlaceholderPage title="Jadwal" />,
   }))
 );
+const JournalsPage = lazy(() =>
+  import('../features/journals/JournalsPage').catch(() => ({
+    default: () => <PlaceholderPage title="Jurnal Harian" />,
+  }))
+);
 const GradesPage = lazy(() =>
   import('../features/grades/GradesPage').catch(() => ({
     default: () => <PlaceholderPage title="Nilai" />,
@@ -233,6 +238,18 @@ export const router = createBrowserRouter([
           <PageWrapper>
             <SchedulesPage />
           </PageWrapper>
+        ),
+      },
+
+      // ── Jurnal Harian — Guru (CRUD), Kepala_Sekolah (Tinjauan Terima/Tolak & Pantauan), Staf_Admin (Pantauan & Pengingat) ──
+      {
+        path: 'journals',
+        element: (
+          <RoleGuard allowedRoles={['Guru', 'Kepala_Sekolah', 'Staf_Admin']}>
+            <PageWrapper>
+              <JournalsPage />
+            </PageWrapper>
+          </RoleGuard>
         ),
       },
 

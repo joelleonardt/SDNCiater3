@@ -1,5 +1,6 @@
 import PageHeader from '@/components/ui/PageHeader'
 import AnnouncementsPanel from './AnnouncementsPanel'
+import JournalReminderBanner from './JournalReminderBanner'
 import RoleVerificationPanel from './RoleVerificationPanel'
 import SummaryCards from './SummaryCards'
 import TodaySchedule from './TodaySchedule'
@@ -15,6 +16,9 @@ export default function DashboardPage() {
 
       {/* Panel verifikasi perubahan peran (tampil jika ada pengajuan peran) */}
       <RoleVerificationPanel />
+
+      {/* Banner pengingat & notifikasi jurnal harian untuk Guru */}
+      <JournalReminderBanner />
 
       {/* Baris 1: Kartu ringkasan (full width) */}
       <SummaryCards />

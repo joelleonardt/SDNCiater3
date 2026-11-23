@@ -338,6 +338,97 @@ export type Database = {
           letter?: string
         }
       }
+      daily_journals: {
+        Row: {
+          id: string
+          school_id: string
+          teacher_id: string
+          class_id: string
+          journal_date: string
+          subject: string
+          topic: string
+          activities: string
+          status: 'Menunggu_Tinjauan' | 'Disetujui' | 'Ditolak'
+          reviewer_id: string | null
+          review_notes: string | null
+          reviewed_at: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          school_id: string
+          teacher_id: string
+          class_id: string
+          journal_date: string
+          subject: string
+          topic: string
+          activities: string
+          status?: 'Menunggu_Tinjauan' | 'Disetujui' | 'Ditolak'
+          reviewer_id?: string | null
+          review_notes?: string | null
+          reviewed_at?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          school_id?: string
+          teacher_id?: string
+          class_id?: string
+          journal_date?: string
+          subject?: string
+          topic?: string
+          activities?: string
+          status?: 'Menunggu_Tinjauan' | 'Disetujui' | 'Ditolak'
+          reviewer_id?: string | null
+          review_notes?: string | null
+          reviewed_at?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+      }
+      notifications: {
+        Row: {
+          id: string
+          school_id: string
+          recipient_id: string
+          sender_id: string | null
+          type: 'Pengingat_Jurnal' | 'Tinjauan_Jurnal'
+          title: string
+          message: string
+          target_date: string | null
+          journal_id: string | null
+          is_read: boolean
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          school_id: string
+          recipient_id: string
+          sender_id?: string | null
+          type: 'Pengingat_Jurnal' | 'Tinjauan_Jurnal'
+          title: string
+          message: string
+          target_date?: string | null
+          journal_id?: string | null
+          is_read?: boolean
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          school_id?: string
+          recipient_id?: string
+          sender_id?: string | null
+          type?: 'Pengingat_Jurnal' | 'Tinjauan_Jurnal'
+          title?: string
+          message?: string
+          target_date?: string | null
+          journal_id?: string | null
+          is_read?: boolean
+          created_at?: string
+        }
+      }
     }
     Views: Record<string, never>
     Functions: Record<string, never>
@@ -363,6 +454,8 @@ export type Note = Tables['notes']['Row']
 export type GradeComponent = Tables['grade_components']['Row']
 export type Grade = Tables['grades']['Row']
 export type GradeScale = Tables['grade_scales']['Row']
+export type DailyJournal = Tables['daily_journals']['Row']
+export type AppNotification = Tables['notifications']['Row']
 
 // Insert types (used when creating new records)
 export type ProfileInsert = Tables['profiles']['Insert']
@@ -378,6 +471,8 @@ export type NoteInsert = Tables['notes']['Insert']
 export type GradeComponentInsert = Tables['grade_components']['Insert']
 export type GradeInsert = Tables['grades']['Insert']
 export type GradeScaleInsert = Tables['grade_scales']['Insert']
+export type DailyJournalInsert = Tables['daily_journals']['Insert']
+export type AppNotificationInsert = Tables['notifications']['Insert']
 
 // Update types (partial, used for PATCH / UPDATE operations)
 export type ProfileUpdate = Tables['profiles']['Update']
@@ -393,3 +488,5 @@ export type NoteUpdate = Tables['notes']['Update']
 export type GradeComponentUpdate = Tables['grade_components']['Update']
 export type GradeUpdate = Tables['grades']['Update']
 export type GradeScaleUpdate = Tables['grade_scales']['Update']
+export type DailyJournalUpdate = Tables['daily_journals']['Update']
+export type AppNotificationUpdate = Tables['notifications']['Update']

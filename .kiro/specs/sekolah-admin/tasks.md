@@ -401,6 +401,23 @@ Rencana implementasi ini mengikuti urutan prioritas: setup Supabase → scaffold
 - [x] 22. Final Checkpoint — Ensure all tests pass
   - Pastikan semua tests lulus, code splitting berfungsi, dan seluruh aplikasi berjalan dari 320px hingga 1920px. Tanyakan kepada user jika ada pertanyaan.
 
+- [x] 23. Fitur Jurnal Harian Guru, Tinjauan Kepala Sekolah, dan Pengingat In-App
+  - [x] 23.1 Tambahkan skema SQL & RLS untuk `daily_journals` dan `notifications`
+    - Perbarui `supabase/schema.sql`, `supabase/rls_policies.sql`, `supabase/sync_existing_db.sql`, dan `src/types/database.types.ts`
+    - _Requirements: 17.1, 17.2, 17.3, 17.5, 17.6_
+  - [x] 23.2 Buat service `src/services/journalService.ts`
+    - Implementasi CRUD jurnal harian guru, tinjauan Kepala Sekolah (`Disetujui` / `Ditolak` beserta pembuatan notifikasi otomatis), pantauan kepatuhan guru per tanggal, dan pengiriman pengingat in-app (satuan & massal)
+    - _Requirements: 16.3, 17.2, 17.3, 17.4, 17.5, 17.6_
+  - [x] 23.3 Buat halaman `JournalsPage`, `JournalFormModal`, `JournalReviewModal`, `JournalReminderBanner`, dan integrasi lonceng notifikasi di `Topbar`
+    - Tambahkan rute `/journals` di `src/app/routes.tsx` dan menu `Jurnal Harian` di `src/components/ui/Sidebar.tsx`
+    - Tambahkan `JournalReminderBanner` di `src/features/dashboard/DashboardPage.tsx` dan dropdown notifikasi di `src/components/ui/Topbar.tsx`
+    - _Requirements: 17.1, 17.2, 17.3, 17.4, 17.5, 17.6, 17.7_
+
+- [ ]* 24. (Catatan Opsional — Belum Dimasukkan ke Sistem) Kanal Notifikasi Pengingat Guru di Luar Web Dashboard
+  - [ ]* 24.1 (Opsional — Tanpa API Key) Integrasi Browser Native Notification API (`window.Notification`) + Supabase Realtime saat tab browser terbuka di latar belakang
+  - [ ]* 24.2 (Opsional — Tanpa API Key) Tombol *Quick-Remind* WhatsApp Deep-Link (`https://wa.me/`) dengan template pesan otomatis pada tabel Pantauan Guru
+  - [ ]* 24.3 (Opsional — Dengan VAPID / API Key Email seperti Resend) Pengiriman Web Push Notification atau Email Pengingat melalui Supabase Edge Function
+
 ## Notes
 
 - Task bertanda `*` adalah opsional dan dapat dilewati untuk MVP yang lebih cepat
