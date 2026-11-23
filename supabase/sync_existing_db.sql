@@ -1317,3 +1317,36 @@ END;
 $$;
 
 GRANT EXECUTE ON FUNCTION public.register_user_no_email(text, text, text, text) TO anon, authenticated, service_role;
+
+-- ---------------------------------------------------------------------------
+-- 7. Perbaikan Foreign Key agar Delete User di Supabase Auth Tidak Error
+--    ("Failed to delete selected users: Database error deleting user")
+-- ---------------------------------------------------------------------------
+
+-- Pastikan profiles.id memiliki ON DELETE CASCADE ke auth.users(id)
+ALTER TABLE public.profiles
+  DROP CONSTRAINT IF EXISTS profiles_id_fkey;
+ALTER TABLE public.profiles
+  ADD CONSTRAINT profiles_id_fkey
+  FOREIGN KEY (id) REFERENCES auth.users(id) ON DELETE CASCADE;
+
+-- Pastikan classes.homeroom_teacher_id otomatis menjadi NULL saat akun guru dihapus
+ALTER TABLE public.classes
+  DROP CONSTRAINT IF EXISTS classes_homeroom_teacher_id_fkey;
+ALTER TABLE public.classes
+  ADD CONSTRAINT classes_homeroom_teacher_id_fkey
+  FOREIGN KEY (homeroom_teacher_id) REFERENCES public.profiles(id) ON DELETE SET NULL;
+
+-- Pastikan schedules.teacher_id otomatis terhapus (CASCADE) saat akun guru dihapus
+ALTER TABLE public.schedules
+  DROP CONSTRAINT IF EXISTS schedules_teacher_id_fkey;
+ALTER TABLE public.schedules
+  ADD CONSTRAINT schedules_teacher_id_fkey
+  FOREIGN KEY (teacher_id) REFERENCES public.profiles(id) ON DELETE CASCADE;
+
+-- Pastikan notes.author_id otomatis terhapus (CASCADE) saat akun pembuat catatan dihapus
+ALTER TABLE public.notes
+  DROP CONSTRAINT IF EXISTS notes_author_id_fkey;
+ALTER TABLE public.notes
+  ADD CONSTRAINT notes_author_id_fkey
+  FOREIGN KEY (author_id) REFERENCES public.profiles(id) ON DELETE CASCADE;

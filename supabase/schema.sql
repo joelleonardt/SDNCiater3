@@ -109,7 +109,7 @@ CREATE TABLE classes (
   academic_year_id    uuid NOT NULL REFERENCES academic_years(id),
   name                text NOT NULL CHECK (char_length(name) BETWEEN 1 AND 50),
   grade_level         integer NOT NULL CHECK (grade_level BETWEEN 1 AND 12),
-  homeroom_teacher_id uuid REFERENCES profiles(id),
+  homeroom_teacher_id uuid REFERENCES profiles(id) ON DELETE SET NULL,
   created_at          timestamptz NOT NULL DEFAULT now(),
   UNIQUE (academic_year_id, name)
 );
@@ -204,8 +204,8 @@ CREATE INDEX idx_attendance_class_date ON attendance (class_id, date);
 -- ---------------------------------------------------------------------------
 CREATE TABLE schedules (
   id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  class_id    uuid NOT NULL REFERENCES classes(id),
-  teacher_id  uuid NOT NULL REFERENCES profiles(id),
+  class_id    uuid NOT NULL REFERENCES classes(id) ON DELETE CASCADE,
+  teacher_id  uuid NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
   subject     text NOT NULL,
   day_of_week integer NOT NULL CHECK (day_of_week BETWEEN 1 AND 6), -- 1=Senin ... 6=Sabtu
   start_time  time NOT NULL,
@@ -229,8 +229,8 @@ CREATE INDEX idx_schedules_day_of_week ON schedules (day_of_week);
 -- ---------------------------------------------------------------------------
 CREATE TABLE notes (
   id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  student_id uuid NOT NULL REFERENCES students(id),
-  author_id  uuid NOT NULL REFERENCES profiles(id),
+  student_id uuid NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+  author_id  uuid NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
   category   text NOT NULL CHECK (category IN ('Perilaku','Prestasi')),
   note_date  date NOT NULL,
   content    text NOT NULL CHECK (char_length(content) BETWEEN 1 AND 1000),
