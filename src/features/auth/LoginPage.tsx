@@ -8,8 +8,6 @@ import {
   EyeOff,
   Loader2,
   ShieldCheck,
-  Building2,
-  Lock,
 } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
@@ -121,43 +119,38 @@ export default function LoginPage() {
         className="pointer-events-none absolute inset-0 bg-[linear-gradient(to_right,hsl(var(--border)/0.45)_1px,transparent_1px),linear-gradient(to_bottom,hsl(var(--border)/0.45)_1px,transparent_1px)] bg-[size:32px_32px] [mask-image:radial-gradient(ellipse_60%_55%_at_50%_45%,#000_70%,transparent_100%)]"
       />
 
-      {/* Top institutional header bar */}
-      <header className="relative z-10 mx-auto flex w-full max-w-5xl items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg border border-border bg-card text-primary shadow-sm">
-            <GraduationCap className="h-5 w-5" aria-hidden="true" />
-          </div>
-          <div>
-            <span className="block text-sm font-semibold tracking-tight text-foreground">
-              SDN Ciater 3
-            </span>
-            <span className="block text-xs text-muted-foreground">
-              Sistem Administrasi Sekolah
-            </span>
-          </div>
+      {/* Centered institutional header */}
+      <header className="relative z-10 mx-auto flex w-full max-w-md flex-col items-center text-center pt-2">
+        <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-xl border border-border bg-card text-primary shadow-sm">
+          <GraduationCap className="h-5 w-5" aria-hidden="true" />
         </div>
-
-        <div className="hidden sm:inline-flex items-center gap-2 rounded-full border border-border bg-card/90 px-3 py-1 text-xs text-muted-foreground shadow-sm">
+        <span className="block text-base font-semibold tracking-tight text-foreground">
+          SDN Ciater 03
+        </span>
+        <span className="mt-0.5 block text-xs text-muted-foreground">
+          Sistem Administrasi Sekolah
+        </span>
+        <div className="mt-2.5 inline-flex items-center gap-2 rounded-full border border-border bg-card/90 px-3 py-1 text-xs text-muted-foreground shadow-sm">
           <span className="h-1.5 w-1.5 rounded-full bg-primary" aria-hidden="true" />
           Portal Internal Guru &amp; Staf
         </div>
       </header>
 
       {/* Center portal container */}
-      <main className="relative z-10 mx-auto my-8 w-full max-w-[420px]">
+      <main className="relative z-10 mx-auto my-6 w-full max-w-[420px]">
         <div className="rounded-xl border border-border bg-card text-card-foreground shadow-sm">
           {/* Card header */}
-          <div className="border-b border-border/70 px-6 pt-6 pb-5">
+          <div className="border-b border-border/70 px-6 pt-6 pb-5 text-center">
             <p className="text-[11px] font-semibold uppercase tracking-wider text-primary">
               Portal Akademik &amp; Administrasi
             </p>
             <h1 className="mt-1.5 text-xl font-semibold tracking-tight text-foreground">
-              {mode === 'login' ? 'Masuk ke SDN Ciater 3' : 'Registrasi Akun Pegawai'}
+              {mode === 'login' ? 'Masuk ke SDN Ciater 03' : 'Registrasi Akun Pegawai'}
             </h1>
             <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
               {mode === 'login'
                 ? 'Gunakan email terdaftar untuk mengelola kelas, presensi, nilai, dan rapor siswa.'
-                : 'Daftarkan akun guru atau staf baru untuk dihubungkan ke sistem SDN Ciater 3.'}
+                : 'Daftarkan akun guru atau staf baru untuk dihubungkan ke sistem SDN Ciater 03.'}
             </p>
           </div>
 
@@ -446,29 +439,11 @@ export default function LoginPage() {
             )}
           </div>
         </div>
-
-        {/* Institutional info bar */}
-        <div className="mt-3 grid grid-cols-2 gap-2 rounded-xl border border-border/80 bg-card/80 p-3 text-xs text-muted-foreground shadow-sm backdrop-blur-sm">
-          <div className="flex items-start gap-2.5">
-            <Building2 className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
-            <div>
-              <div className="font-medium text-foreground">SD Negeri Ciater 3</div>
-              <div className="text-[11px] text-muted-foreground">Kelas • Presensi • Nilai • Rapor</div>
-            </div>
-          </div>
-          <div className="flex items-start gap-2.5 border-l border-border/70 pl-2.5">
-            <Lock className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
-            <div>
-              <div className="font-medium text-foreground">Akses Terverifikasi</div>
-              <div className="text-[11px] text-muted-foreground">Guru, Staf Admin &amp; Kepala Sekolah</div>
-            </div>
-          </div>
-        </div>
       </main>
 
       {/* Bottom footer */}
       <footer className="relative z-10 mx-auto w-full max-w-5xl text-center text-xs text-muted-foreground">
-        &copy; {new Date().getFullYear()} SDN Ciater 3 — Sistem Administrasi Sekolah
+        &copy; {new Date().getFullYear()} SDN Ciater 03 — Sistem Administrasi Sekolah
       </footer>
     </div>
   )
