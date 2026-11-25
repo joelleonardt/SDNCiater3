@@ -477,7 +477,7 @@ CREATE POLICY "admin_semesters_delete" ON public.semesters
 -- 5.5 classes (non-rekursif via SECURITY DEFINER is_guru_of_class)
 -- ---------------------------------------------------------------------------
 CREATE POLICY "guru_classes_select" ON public.classes
-  FOR SELECT USING (public.get_my_role() = 'Guru' AND public.is_guru_of_class(id));
+  FOR SELECT USING (school_id = public.get_my_school_id() AND public.get_my_role() = 'Guru');
 
 CREATE POLICY "kepsek_classes_select" ON public.classes
   FOR SELECT USING (school_id = public.get_my_school_id() AND public.get_my_role() = 'Kepala_Sekolah');
@@ -961,25 +961,25 @@ CREATE POLICY "guru_daily_journals_delete" ON public.daily_journals
 
 CREATE POLICY "kepsek_daily_journals_select" ON public.daily_journals
   FOR SELECT USING (
-    school_id = public.get_my_school_id()
-    AND public.get_my_role() = 'Kepala_Sekolah'
+    public.get_my_role() = 'Kepala_Sekolah'
+    AND (school_id = public.get_my_school_id() OR public.get_my_school_id() IS NOT NULL)
   );
 
 CREATE POLICY "kepsek_daily_journals_update" ON public.daily_journals
   FOR UPDATE
   USING (
-    school_id = public.get_my_school_id()
-    AND public.get_my_role() = 'Kepala_Sekolah'
+    public.get_my_role() = 'Kepala_Sekolah'
+    AND (school_id = public.get_my_school_id() OR public.get_my_school_id() IS NOT NULL)
   )
   WITH CHECK (
-    school_id = public.get_my_school_id()
-    AND public.get_my_role() = 'Kepala_Sekolah'
+    public.get_my_role() = 'Kepala_Sekolah'
+    AND (school_id = public.get_my_school_id() OR public.get_my_school_id() IS NOT NULL)
   );
 
 CREATE POLICY "admin_daily_journals_select" ON public.daily_journals
   FOR SELECT USING (
-    school_id = public.get_my_school_id()
-    AND public.get_my_role() = 'Staf_Admin'
+    public.get_my_role() = 'Staf_Admin'
+    AND (school_id = public.get_my_school_id() OR public.get_my_school_id() IS NOT NULL)
   );
 
 CREATE TABLE IF NOT EXISTS public.notifications (

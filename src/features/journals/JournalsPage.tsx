@@ -11,6 +11,8 @@ import {
   ClipboardCheck,
   Loader2,
   BookOpen,
+  RefreshCw,
+  AlertTriangle,
 } from 'lucide-react'
 import PageHeader from '@/components/ui/PageHeader'
 import { Button } from '@/components/ui/button'
@@ -30,6 +32,7 @@ import {
   getTeacherJournalCompliance,
   sendJournalReminder,
   sendBulkJournalReminders,
+  isUsingLocalJournalFallback,
   type DailyJournalWithDetails,
   type JournalStatus,
   type TeacherJournalComplianceItem,
@@ -284,18 +287,51 @@ export default function JournalsPage() {
           }
         />
 
-        {isGuru && (
+        <div className="flex flex-wrap items-center gap-2">
           <Button
+            type="button"
+            variant="outline"
             onClick={() => {
-              setEditingJournal(undefined)
-              setFormOpen(true)
+              void loadJournals()
+              if (activeTab === 'kepatuhan' && canViewCompliance) {
+                void loadCompliance()
+              }
             }}
           >
-            <Plus className="mr-1.5 h-4 w-4" aria-hidden="true" />
-            Buat Jurnal Harian
+            <RefreshCw className="mr-1.5 h-4 w-4" aria-hidden="true" />
+            Muat Ulang
           </Button>
-        )}
+          {isGuru && (
+            <Button
+              onClick={() => {
+                setEditingJournal(undefined)
+                setFormOpen(true)
+              }}
+            >
+              <Plus className="mr-1.5 h-4 w-4" aria-hidden="true" />
+              Buat Jurnal Harian
+            </Button>
+          )}
+        </div>
       </div>
+
+      {isUsingLocalJournalFallback() && (
+        <div
+          role="alert"
+          className="flex items-start gap-2.5 rounded-xl border border-amber-300 bg-amber-50 p-4 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200"
+        >
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+          <div>
+            <span className="font-semibold">
+              Tabel database <code>public.daily_journals</code> belum dibuat di Supabase SQL Editor.
+            </span>{' '}
+            Saat ini jurnal disimpan di penyimpanan lokal browser dan belum tersinkronisasi
+            antar-akun atau browser berbeda. Jalankan query pembuatan tabel{' '}
+            <code>daily_journals</code> &amp; <code>notifications</code> di Supabase SQL Editor agar
+            jurnal yang diisi Guru langsung muncul di akun Kepala Sekolah dan Staf Admin.
+          </div>
+        </div>
+      )}
 
       {/* Tab switcher untuk Staf Admin & Kepala Sekolah */}
       {canViewCompliance && (

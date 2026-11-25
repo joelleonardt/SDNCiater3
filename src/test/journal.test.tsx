@@ -1,8 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
 import JournalReviewModal from '@/features/journals/JournalReviewModal'
 import JournalFormModal from '@/features/journals/JournalFormModal'
 import JournalsPage from '@/features/journals/JournalsPage'
+import JournalReminderBanner from '@/features/dashboard/JournalReminderBanner'
 import { useAuthStore } from '@/stores/authStore'
 import * as journalService from '@/services/journalService'
 import * as classService from '@/services/classService'
@@ -225,5 +227,32 @@ describe('JournalsPage (Staf Admin compliance & reminder flow)', () => {
         })
       )
     })
+  })
+
+  it('displays submitted teacher journals on Dashboard for Kepala Sekolah and Staf Admin', async () => {
+    useAuthStore.setState({
+      profile: {
+        id: 'kepsek-1',
+        school_id: 'school-1',
+        full_name: 'Kepala Sekolah',
+        email: 'kepsek@sdnciater3.sch.id',
+        role: 'Kepala_Sekolah',
+        requested_role: null,
+        avatar_url: null,
+        is_active: true,
+        created_at: '2026-07-01T00:00:00Z',
+      },
+    })
+
+    render(
+      <MemoryRouter>
+        <JournalReminderBanner />
+      </MemoryRouter>
+    )
+
+    expect(await screen.findByText('Jurnal Harian Guru Terbaru')).toBeInTheDocument()
+    expect(screen.getByText('Budi Santoso, S.Pd.')).toBeInTheDocument()
+    expect(screen.getByText('Pecahan Senilai')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Tinjau/i })).toBeInTheDocument()
   })
 })

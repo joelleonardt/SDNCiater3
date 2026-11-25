@@ -82,6 +82,12 @@ function emitNotificationsUpdated(): void {
 const LS_JOURNALS_KEY = 'sekolah_admin_daily_journals_v1'
 const LS_NOTIFICATIONS_KEY = 'sekolah_admin_notifications_v1'
 
+let usingLocalJournalFallback = false
+
+export function isUsingLocalJournalFallback(): boolean {
+  return usingLocalJournalFallback
+}
+
 function isMissingTableError(err: { code?: string; message?: string } | null): boolean {
   if (!err) return false
   const code = err.code ?? ''
@@ -154,19 +160,13 @@ function formatIndonesianDate(isoDate: string): string {
 
 // ─── Helper Lookup Nama Guru & Kelas ─────────────────────────────────────────
 
-async function fetchProfilesAndClassesMap(schoolId: string): Promise<{
+async function fetchProfilesAndClassesMap(): Promise<{
   profileMap: Map<string, string>
   classMap: Map<string, string>
 }> {
   const [profilesRes, classesRes] = await Promise.all([
-    supabase
-      .from('profiles')
-      .select('id, full_name')
-      .eq('school_id', schoolId),
-    supabase
-      .from('classes')
-      .select('id, name')
-      .eq('school_id', schoolId),
+    supabase.from('profiles').select('id, full_name'),
+    supabase.from('classes').select('id, name'),
   ])
 
   const profileMap = new Map<string, string>()
@@ -199,7 +199,6 @@ export async function getDailyJournals(
   let query = supabase
     .from('daily_journals')
     .select('*')
-    .eq('school_id', params.schoolId)
     .order('journal_date', { ascending: false })
     .order('created_at', { ascending: false })
 
@@ -220,15 +219,15 @@ export async function getDailyJournals(
   }
 
   const { data, error } = await query
-  const { profileMap, classMap } = await fetchProfilesAndClassesMap(params.schoolId)
+  const { profileMap, classMap } = await fetchProfilesAndClassesMap()
 
   let rows: DailyJournal[] = []
   if (error) {
     if (!isMissingTableError(error)) {
       throw new Error(error.message)
     }
+    usingLocalJournalFallback = true
     rows = readLocalJournals().filter((j) => {
-      if (j.school_id !== params.schoolId) return false
       if (params.teacherId && j.teacher_id !== params.teacherId) return false
       if (params.classId && j.class_id !== params.classId) return false
       if (params.status && j.status !== params.status) return false
@@ -241,6 +240,7 @@ export async function getDailyJournals(
       b.created_at.localeCompare(a.created_at)
     )
   } else {
+    usingLocalJournalFallback = false
     rows = (data ?? []) as DailyJournal[]
   }
 
@@ -460,7 +460,6 @@ export async function getTeacherJournalCompliance(
   const { data: journalsData, error: journalsError } = await supabase
     .from('daily_journals')
     .select('*')
-    .eq('school_id', schoolId)
     .eq('journal_date', date)
 
   let journalsOnDate: DailyJournal[] = []
@@ -468,10 +467,10 @@ export async function getTeacherJournalCompliance(
     if (!isMissingTableError(journalsError)) {
       throw new Error(journalsError.message)
     }
-    journalsOnDate = readLocalJournals().filter(
-      (j) => j.school_id === schoolId && j.journal_date === date
-    )
+    usingLocalJournalFallback = true
+    journalsOnDate = readLocalJournals().filter((j) => j.journal_date === date)
   } else {
+    usingLocalJournalFallback = false
     journalsOnDate = (journalsData ?? []) as DailyJournal[]
   }
 
