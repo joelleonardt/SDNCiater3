@@ -23,6 +23,9 @@ vi.mock('@/services/journalService', async (importOriginal) => {
     getTeacherJournalCompliance: vi.fn(),
     sendJournalReminder: vi.fn(),
     sendBulkJournalReminders: vi.fn(),
+    getCurriculumTps: vi.fn(),
+    createCurriculumTp: vi.fn(),
+    deleteCurriculumTp: vi.fn(),
   }
 })
 
@@ -44,6 +47,12 @@ function makeSampleJournal(
     subject: 'Matematika',
     topic: 'Pecahan Senilai',
     activities: 'Penjelasan konsep pecahan senilai dengan alat peraga dan latihan soal.',
+    cp: 'Peserta didik memahami konsep pecahan senilai.',
+    tp: 'Menjelaskan dan menentukan pecahan senilai.',
+    iktp: 'Menentukan nilai pecahan',
+    method: 'Diskusi & Demonstrasi',
+    media: 'Alat Peraga Pecahan',
+    reflection: 'Penjelasan konsep pecahan senilai dengan alat peraga dan latihan soal.',
     status: 'Menunggu_Tinjauan',
     reviewer_id: null,
     reviewer_name: null,
@@ -144,6 +153,38 @@ describe('JournalFormModal (Guru create/edit flow)', () => {
       screen.getByRole('button', { name: /Simpan & Ajukan Ulang/i })
     ).toBeInTheDocument()
   })
+
+  it('auto-fills CP when subject is selected and supports TP picker and Bersihkan TP', () => {
+    render(
+      <JournalFormModal
+        open
+        classes={sampleClasses}
+        onSubmit={vi.fn().mockResolvedValue(undefined)}
+        onClose={vi.fn()}
+      />
+    )
+
+    const subjectSelect = screen.getByLabelText(/Mata Pelajaran/i) as HTMLSelectElement
+    fireEvent.change(subjectSelect, { target: { value: 'Matematika' } })
+
+    const cpTextarea = screen.getByLabelText(/Capaian Pembelajaran \(CP\)/i) as HTMLTextAreaElement
+    expect(cpTextarea.value).toMatch(/pemahaman dan intuisi bilangan/i)
+
+    const tpPicker = screen.getByLabelText(/Pilih Tujuan Pembelajaran \(TP\)/i) as HTMLSelectElement
+    fireEvent.change(tpPicker, {
+      target: {
+        value: 'Menjelaskan dan menentukan pecahan senilai menggunakan benda konkret atau gambar.',
+      },
+    })
+
+    const tpTextarea = screen.getByLabelText('Tujuan Pembelajaran (TP)') as HTMLTextAreaElement
+    expect(tpTextarea.value).toContain(
+      'Menjelaskan dan menentukan pecahan senilai menggunakan benda konkret atau gambar.'
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /Bersihkan TP/i }))
+    expect(tpTextarea.value).toBe('')
+  })
 })
 
 describe('JournalsPage (Staf Admin compliance & reminder flow)', () => {
@@ -198,6 +239,55 @@ describe('JournalsPage (Staf Admin compliance & reminder flow)', () => {
       journal_id: null,
       is_read: false,
       created_at: '2026-11-22T08:00:00Z',
+    })
+    vi.mocked(journalService.getCurriculumTps).mockResolvedValue([])
+    vi.mocked(journalService.createCurriculumTp).mockResolvedValue({
+      id: 'tp-1',
+      school_id: 'school-1',
+      class_level: 'Kelas 4',
+      subject: 'Matematika',
+      tp_code: '1.1',
+      semester: 'Semester 1',
+      cp: 'Peserta didik memahami konsep pecahan senilai.',
+      tp_description: 'Menjelaskan dan menentukan pecahan senilai dengan gambar.',
+      created_by: 'admin-1',
+      created_at: '2026-11-25T07:00:00Z',
+    })
+  })
+
+  it('allows switching to Master Data TP (Kurikulum) tab and saving a new CP & TP item', async () => {
+    render(<JournalsPage />)
+
+    // Pindah ke tab Master Data TP (Kurikulum)
+    fireEvent.click(screen.getByRole('button', { name: /Master Data TP \(Kurikulum\)/i }))
+
+    expect(await screen.findByLabelText(/Kelas:/i)).toBeInTheDocument()
+
+    fireEvent.change(screen.getByLabelText(/Kelas:/i), { target: { value: 'Kelas 4' } })
+    fireEvent.change(screen.getByLabelText(/Mata Pelajaran:/i), { target: { value: 'Matematika' } })
+    fireEvent.change(screen.getByLabelText(/Kode TP:/i), { target: { value: '1.1' } })
+    fireEvent.change(screen.getByLabelText(/Semester:/i), { target: { value: 'Semester 1' } })
+    fireEvent.change(screen.getByLabelText(/Capaian Pembelajaran \(CP\):/i), {
+      target: { value: 'Peserta didik memahami konsep pecahan senilai.' },
+    })
+    fireEvent.change(screen.getByLabelText(/Deskripsi Tujuan Pembelajaran \(TP\):/i), {
+      target: { value: 'Menjelaskan dan menentukan pecahan senilai dengan gambar.' },
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: /Simpan ke Database TP/i }))
+
+    await waitFor(() => {
+      expect(journalService.createCurriculumTp).toHaveBeenCalledWith(
+        expect.objectContaining({
+          school_id: 'school-1',
+          class_level: 'Kelas 4',
+          subject: 'Matematika',
+          tp_code: '1.1',
+          semester: 'Semester 1',
+          cp: 'Peserta didik memahami konsep pecahan senilai.',
+          tp_description: 'Menjelaskan dan menentukan pecahan senilai dengan gambar.',
+        })
+      )
     })
   })
 

@@ -7,6 +7,8 @@
  */
 
 import { supabase } from './supabase'
+import { escapeHtml, printHTML } from '@/lib/pdfGenerator'
+import { formatReportDate, formatNumber } from '@/lib/utils'
 import type {
   AppNotification,
   Class,
@@ -19,7 +21,16 @@ const db = supabase as any
 
 export type JournalStatus = 'Menunggu_Tinjauan' | 'Disetujui' | 'Ditolak'
 
-export interface DailyJournalWithDetails extends DailyJournal {
+export interface ParsedJournalFields {
+  cp: string
+  tp: string
+  iktp: string
+  method: string
+  media: string
+  reflection: string
+}
+
+export interface DailyJournalWithDetails extends DailyJournal, ParsedJournalFields {
   teacher_name: string
   class_name: string
   reviewer_name: string | null
@@ -33,6 +44,11 @@ export interface CreateDailyJournalInput {
   subject: string
   topic: string
   activities: string
+  cp?: string
+  tp?: string
+  iktp?: string
+  method?: string
+  media?: string
 }
 
 export interface UpdateDailyJournalInput {
@@ -41,6 +57,182 @@ export interface UpdateDailyJournalInput {
   subject: string
   topic: string
   activities: string
+  cp?: string
+  tp?: string
+  iktp?: string
+  method?: string
+  media?: string
+}
+
+// ─── Preset Kurikulum Merdeka SD (Mata Pelajaran, CP, & Pilihan TP) ──────────
+
+export interface SubjectCurriculumPreset {
+  subject: string
+  defaultCp: string
+  tpOptions: string[]
+}
+
+export const SD_CURRICULUM_PRESETS: SubjectCurriculumPreset[] = [
+  {
+    subject: 'Matematika',
+    defaultCp:
+      'Peserta didik menunjukkan pemahaman dan intuisi bilangan (number sense) pada bilangan cacah, pecahan, operasi hitung, pengukuran, geometri, serta analisis data sederhana dalam kehidupan sehari-hari.',
+    tpOptions: [
+      'Menjelaskan dan menentukan pecahan senilai menggunakan benda konkret atau gambar.',
+      'Melakukan operasi penjumlahan dan pengurangan bilangan cacah serta pecahan.',
+      'Mengukur dan membandingkan panjang, berat, waktu, serta luas bangun datar.',
+      'Mengidentifikasi ciri-ciri bangun datar dan bangun ruang sederhana.',
+    ],
+  },
+  {
+    subject: 'Bahasa Indonesia',
+    defaultCp:
+      'Peserta didik memiliki kemampuan berbahasa untuk berkomunikasi dan bernalar melalui kegiatan menyimak, membaca dan memirsa, berbicara dan mempresentasikan, serta menulis berbagai teks.',
+    tpOptions: [
+      'Menemukan ide pokok dan informasi penting dari teks bacaan narasi/informatif.',
+      'Menulis kalimat efektif dan paragraf deskripsi menggunakan kosakata baku.',
+      'Menceritakan kembali isi teks yang dibaca atau disimak dengan bahasa sendiri.',
+      'Mengidentifikasi unsur intrinsik cerita anak (tokoh, watak, latar, amanat).',
+    ],
+  },
+  {
+    subject: 'Ilmu Pengetahuan Alam dan Sosial (IPAS)',
+    defaultCp:
+      'Peserta didik memahami fenomena alam dan sosial di sekitar, keterkaitan makhluk hidup dengan lingkungannya, wujud zat dan energi, serta keragaman budaya dan kegiatan ekonomi masyarakat.',
+    tpOptions: [
+      'Mengidentifikasi bagian tubuh tumbuhan/hewan beserta fungsinya bagi kelangsungan hidup.',
+      'Menjelaskan perubahan wujud benda dan pemanfaatan bentuk energi dalam kehidupan sehari-hari.',
+      'Mendeskripsikan keragaman sosial, budaya, dan kenampakan alam di lingkungan sekitar.',
+      'Menjelaskan siklus air dan upaya menjaga kelestarian sumber daya alam.',
+    ],
+  },
+  {
+    subject: 'Pendidikan Pancasila',
+    defaultCp:
+      'Peserta didik mampu memahami dan menerapkan nilai-nilai Pancasila, aturan dan norma di keluarga/sekolah, hak dan kewajiban, serta menghargai Bhinneka Tunggal Ika dalam bingkai NKRI.',
+    tpOptions: [
+      'Menerapkan nilai-nilai sila Pancasila dalam kehidupan sehari-hari di sekolah dan rumah.',
+      'Mengidentifikasi aturan, hak, dan kewajiban sebagai anggota keluarga dan warga sekolah.',
+      'Menunjukkan sikap menghargai keberagaman suku, agama, dan budaya teman di kelas.',
+      'Mempraktikkan musyawarah mufakat dalam mengambil keputusan bersama di kelas.',
+    ],
+  },
+  {
+    subject: 'Pendidikan Agama dan Budi Pekerti',
+    defaultCp:
+      'Peserta didik memahami ajaran agama, menerapkan akhlak mulia, jujur, disiplin, santun, serta peduli terhadap sesama dan lingkungan.',
+    tpOptions: [
+      'Mempraktikkan perilaku jujur, santun, dan hormat kepada orang tua serta guru.',
+      'Memahami makna doa dan ibadah harian beserta penerapannya dalam keseharian.',
+      'Menunjukkan sikap saling menolong dan toleransi terhadap sesama teman.',
+    ],
+  },
+  {
+    subject: 'Seni dan Budaya',
+    defaultCp:
+      'Peserta didik mampu mengamati, mengenal, merasakan, dan menciptakan karya seni rupa, musik, tari, atau keterampilan secara kreatif dan ekspresif.',
+    tpOptions: [
+      'Mengenal dan membuat karya seni rupa dua dimensi menggunakan unsur garis, bentuk, dan warna.',
+      'Menyanyikan lagu daerah/nasional dengan memperhatikan tinggi rendah nada dan tempo.',
+      'Membuat karya kerajinan sederhana dari bahan alam atau bahan daur ulang.',
+    ],
+  },
+  {
+    subject: 'Pendidikan Jasmani, Olahraga, dan Kesehatan (PJOK)',
+    defaultCp:
+      'Peserta didik menunjukkan kemampuan dalam mempraktikkan variasi dan kombinasi pola gerak dasar lokomotor, non-lokomotor, manipulatif, serta perilaku hidup bersih dan sehat.',
+    tpOptions: [
+      'Mempraktikkan kombinasi gerak dasar lokomotor (jalan, lari, lompat) dalam permainan sederhana.',
+      'Mempraktikkan gerak dasar manipulatif (melempar, menangkap, menendang bola) secara sportif.',
+      'Menjelaskan cara menjaga kebersihan diri dan kesehatan tubuh sehari-hari.',
+    ],
+  },
+  {
+    subject: 'Bahasa Inggris',
+    defaultCp:
+      'Peserta didik menggunakan bahasa Inggris sederhana untuk berinteraksi dalam situasi sosial dan kelas yang familier melalui kegiatan menyimak, berbicara, membaca, dan menulis.',
+    tpOptions: [
+      'Memperkenalkan diri dan menggunakan ungkapan sapaan (greetings) dalam bahasa Inggris.',
+      'Menyebutkan kosakata benda-benda di dalam kelas, angka, warna, dan anggota keluarga.',
+      'Merangkai kalimat sederhana tentang kegiatan sehari-hari (daily activities).',
+    ],
+  },
+  {
+    subject: 'Muatan Lokal / Bahasa Daerah',
+    defaultCp:
+      'Peserta didik mengenal, memahami, dan melestarikan bahasa serta kearifan budaya lokal dalam komunikasi sehari-hari secara santun.',
+    tpOptions: [
+      'Menggunakan ragam bahasa daerah yang santun dalam percakapan sehari-hari.',
+      'Mengenal kesenian, permainan tradisional, dan budaya daerah setempat.',
+    ],
+  },
+]
+
+export function serializeJournalActivities(input: {
+  cp?: string
+  tp?: string
+  iktp?: string
+  method?: string
+  media?: string
+  activities: string
+}): string {
+  const cp = input.cp?.trim() ?? ''
+  const tp = input.tp?.trim() ?? ''
+  const iktp = input.iktp?.trim() ?? ''
+  const method = input.method?.trim() ?? ''
+  const media = input.media?.trim() ?? ''
+  const reflection = input.activities.trim()
+
+  if (!cp && !tp && !iktp && !method && !media) {
+    return reflection.slice(0, 2000)
+  }
+
+  const lines: string[] = []
+  if (cp) lines.push(`[CP]: ${cp}`)
+  if (tp) lines.push(`[TP]: ${tp}`)
+  if (iktp) lines.push(`[IKTP]: ${iktp}`)
+  if (method) lines.push(`[Metode]: ${method}`)
+  if (media) lines.push(`[Media]: ${media}`)
+  lines.push(`[Refleksi]: ${reflection}`)
+
+  return lines.join('\n').slice(0, 2000)
+}
+
+export function parseJournalActivities(rawActivities: string): ParsedJournalFields {
+  if (!rawActivities || !rawActivities.includes('[Refleksi]:')) {
+    return {
+      cp: '',
+      tp: '',
+      iktp: '',
+      method: '',
+      media: '',
+      reflection: rawActivities ?? '',
+    }
+  }
+
+  function extractTag(tag: string, nextTags: string[]): string {
+    const startToken = `[${tag}]:`
+    const startIdx = rawActivities.indexOf(startToken)
+    if (startIdx === -1) return ''
+    const contentStart = startIdx + startToken.length
+    let endIdx = rawActivities.length
+    for (const nextTag of nextTags) {
+      const nextPos = rawActivities.indexOf(`\n[${nextTag}]:`, contentStart)
+      if (nextPos !== -1 && nextPos < endIdx) {
+        endIdx = nextPos
+      }
+    }
+    return rawActivities.slice(contentStart, endIdx).trim()
+  }
+
+  return {
+    cp: extractTag('CP', ['TP', 'IKTP', 'Metode', 'Media', 'Refleksi']),
+    tp: extractTag('TP', ['IKTP', 'Metode', 'Media', 'Refleksi']),
+    iktp: extractTag('IKTP', ['Metode', 'Media', 'Refleksi']),
+    method: extractTag('Metode', ['Media', 'Refleksi']),
+    media: extractTag('Media', ['Refleksi']),
+    reflection: extractTag('Refleksi', []),
+  }
 }
 
 export interface ReviewDailyJournalInput {
@@ -244,17 +436,32 @@ export async function getDailyJournals(
     rows = (data ?? []) as DailyJournal[]
   }
 
-  return rows.map((row) => ({
-    ...row,
-    teacher_name: profileMap.get(row.teacher_id) ?? 'Guru',
-    class_name: classMap.get(row.class_id) ?? 'Kelas',
-    reviewer_name: row.reviewer_id ? (profileMap.get(row.reviewer_id) ?? 'Kepala Sekolah') : null,
-  }))
+  return rows.map((row) => {
+    const parsed = parseJournalActivities(row.activities)
+    return {
+      ...row,
+      ...parsed,
+      teacher_name: profileMap.get(row.teacher_id) ?? 'Guru',
+      class_name: classMap.get(row.class_id) ?? 'Kelas',
+      reviewer_name: row.reviewer_id
+        ? (profileMap.get(row.reviewer_id) ?? 'Kepala Sekolah')
+        : null,
+    }
+  })
 }
 
 export async function createDailyJournal(
   input: CreateDailyJournalInput
 ): Promise<DailyJournal> {
+  const serializedActivities = serializeJournalActivities({
+    cp: input.cp,
+    tp: input.tp,
+    iktp: input.iktp,
+    method: input.method,
+    media: input.media,
+    activities: input.activities,
+  })
+
   const payload = {
     school_id: input.school_id,
     teacher_id: input.teacher_id,
@@ -262,7 +469,7 @@ export async function createDailyJournal(
     journal_date: input.journal_date,
     subject: input.subject.trim(),
     topic: input.topic.trim(),
-    activities: input.activities.trim(),
+    activities: serializedActivities,
     status: 'Menunggu_Tinjauan' as const,
   }
 
@@ -301,12 +508,21 @@ export async function updateDailyJournal(
   input: UpdateDailyJournalInput
 ): Promise<DailyJournal> {
   const now = new Date().toISOString()
+  const serializedActivities = serializeJournalActivities({
+    cp: input.cp,
+    tp: input.tp,
+    iktp: input.iktp,
+    method: input.method,
+    media: input.media,
+    activities: input.activities,
+  })
+
   const payload = {
     class_id: input.class_id,
     journal_date: input.journal_date,
     subject: input.subject.trim(),
     topic: input.topic.trim(),
-    activities: input.activities.trim(),
+    activities: serializedActivities,
     status: 'Menunggu_Tinjauan' as const,
     reviewer_id: null,
     review_notes: null,
@@ -690,11 +906,214 @@ export async function hasTeacherSubmittedJournalOnDate(
     }
     return readLocalJournals().some(
       (j) =>
-        j.school_id === schoolId &&
         j.teacher_id === teacherId &&
         j.journal_date === date
     )
   }
 
   return (data ?? []).length > 0
+}
+
+// ─── Cetak Jurnal Pembelajaran (PDF / Print Browser) ─────────────────────────
+
+export function printDailyJournalsPdf(
+  journals: DailyJournalWithDetails[],
+  options: {
+    startDate?: string
+    endDate?: string
+    schoolName?: string
+  } = {}
+): void {
+  if (journals.length === 0) {
+    throw new Error('Tidak ada data jurnal pembelajaran pada rentang tanggal yang dipilih.')
+  }
+
+  const schoolName = escapeHtml(options.schoolName ?? 'SDN Ciater 03')
+  const periodLabel =
+    options.startDate && options.endDate
+      ? `${escapeHtml(formatReportDate(options.startDate))} s/d ${escapeHtml(formatReportDate(options.endDate))}`
+      : options.startDate
+        ? `Mulai ${escapeHtml(formatReportDate(options.startDate))}`
+        : 'Semua Periode'
+
+  const rows = journals
+    .map((j, idx) => {
+      const statusText =
+        j.status === 'Disetujui'
+          ? 'Disetujui'
+          : j.status === 'Ditolak'
+            ? 'Ditolak'
+            : 'Menunggu Tinjauan'
+      return `
+      <tr>
+        <td style="text-align:center">${formatNumber(idx + 1)}</td>
+        <td>${escapeHtml(j.journal_date)}</td>
+        <td>${escapeHtml(j.teacher_name)}</td>
+        <td style="text-align:center">${escapeHtml(j.class_name)}</td>
+        <td><strong>${escapeHtml(j.subject)}</strong><br/><span>Materi: ${escapeHtml(j.topic)}</span></td>
+        <td>
+          ${j.cp ? `<div><strong>CP:</strong> ${escapeHtml(j.cp)}</div>` : ''}
+          ${j.tp ? `<div><strong>TP:</strong> ${escapeHtml(j.tp)}</div>` : ''}
+          ${j.iktp ? `<div><strong>IKTP:</strong> ${escapeHtml(j.iktp)}</div>` : ''}
+        </td>
+        <td>
+          ${j.method ? `<div><strong>Metode:</strong> ${escapeHtml(j.method)}</div>` : ''}
+          ${j.media ? `<div><strong>Media:</strong> ${escapeHtml(j.media)}</div>` : ''}
+          <div><strong>Refleksi:</strong> ${escapeHtml(j.reflection || j.activities)}</div>
+        </td>
+        <td style="text-align:center">
+          <strong>${escapeHtml(statusText)}</strong>
+          ${j.review_notes ? `<br/><small>Catatan: ${escapeHtml(j.review_notes)}</small>` : ''}
+        </td>
+      </tr>`
+    })
+    .join('')
+
+  const html = `
+    <h1>${schoolName} — Laporan Jurnal Pembelajaran Harian</h1>
+    <p class="meta">Periode: ${periodLabel} | Total Jurnal: ${formatNumber(journals.length)}</p>
+    <table>
+      <thead>
+        <tr>
+          <th style="width:28px">No</th>
+          <th style="width:78px">Tanggal</th>
+          <th style="width:110px">Guru</th>
+          <th style="width:55px">Kelas</th>
+          <th style="width:130px">Mapel &amp; Materi Pokok</th>
+          <th>CP, TP &amp; Indikator (IKTP)</th>
+          <th>Metode, Media &amp; Refleksi</th>
+          <th style="width:95px">Status Tinjauan</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <p class="meta" style="margin-top:16px">Dicetak pada: ${escapeHtml(formatReportDate(new Date()))}</p>
+  `
+
+  printHTML(html, 'Laporan Jurnal Pembelajaran')
+}
+
+// ─── Master Data TP (Kurikulum) — Capaian Pembelajaran & Tujuan Pembelajaran ─
+
+export interface CurriculumTpItem {
+  id: string
+  school_id: string
+  class_level: string
+  subject: string
+  tp_code: string
+  semester: 'Semester 1' | 'Semester 2'
+  cp: string
+  tp_description: string
+  created_by: string | null
+  created_at: string
+}
+
+export interface CreateCurriculumTpInput {
+  school_id: string
+  class_level: string
+  subject: string
+  tp_code: string
+  semester: 'Semester 1' | 'Semester 2'
+  cp: string
+  tp_description: string
+  created_by?: string | null
+}
+
+const LS_CURRICULUM_TPS_KEY = 'sekolah_admin_curriculum_tps_v1'
+
+function readLocalCurriculumTps(): CurriculumTpItem[] {
+  if (typeof window === 'undefined') return []
+  try {
+    const raw = window.localStorage.getItem(LS_CURRICULUM_TPS_KEY)
+    return raw ? (JSON.parse(raw) as CurriculumTpItem[]) : []
+  } catch {
+    return []
+  }
+}
+
+function writeLocalCurriculumTps(items: CurriculumTpItem[]): void {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.setItem(LS_CURRICULUM_TPS_KEY, JSON.stringify(items))
+  } catch {
+    // Abaikan quota error
+  }
+}
+
+export async function getCurriculumTps(schoolId?: string): Promise<CurriculumTpItem[]> {
+  const { data, error } = await db
+    .from('curriculum_tps')
+    .select('*')
+    .order('class_level', { ascending: true })
+    .order('subject', { ascending: true })
+    .order('tp_code', { ascending: true })
+
+  const localItems = readLocalCurriculumTps()
+
+  if (error) {
+    if (!isMissingTableError(error)) {
+      throw new Error(error.message)
+    }
+    return schoolId
+      ? localItems.filter((item) => !item.school_id || item.school_id === schoolId)
+      : localItems
+  }
+
+  const dbItems = (data ?? []) as CurriculumTpItem[]
+  const dbIds = new Set(dbItems.map((i) => i.id))
+  const merged = [...dbItems, ...localItems.filter((l) => !dbIds.has(l.id))]
+  return merged
+}
+
+export async function createCurriculumTp(
+  input: CreateCurriculumTpInput
+): Promise<CurriculumTpItem> {
+  const payload = {
+    school_id: input.school_id,
+    class_level: input.class_level.trim(),
+    subject: input.subject.trim(),
+    tp_code: input.tp_code.trim(),
+    semester: input.semester,
+    cp: input.cp.trim(),
+    tp_description: input.tp_description.trim(),
+    created_by: input.created_by ?? null,
+  }
+
+  const { data, error } = await db
+    .from('curriculum_tps')
+    .insert(payload)
+    .select('*')
+    .single()
+
+  if (error) {
+    if (!isMissingTableError(error)) {
+      throw new Error(error.message)
+    }
+    const fallbackItem: CurriculumTpItem = {
+      id: generateId(),
+      ...payload,
+      created_at: new Date().toISOString(),
+    }
+    const current = readLocalCurriculumTps()
+    writeLocalCurriculumTps([fallbackItem, ...current])
+    return fallbackItem
+  }
+
+  return data as CurriculumTpItem
+}
+
+export async function deleteCurriculumTp(id: string): Promise<void> {
+  const currentLocal = readLocalCurriculumTps()
+  if (currentLocal.some((i) => i.id === id)) {
+    writeLocalCurriculumTps(currentLocal.filter((i) => i.id !== id))
+  }
+
+  const { error } = await db
+    .from('curriculum_tps')
+    .delete()
+    .eq('id', id)
+
+  if (error && !isMissingTableError(error)) {
+    throw new Error(error.message)
+  }
 }

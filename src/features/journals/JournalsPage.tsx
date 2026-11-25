@@ -1,6 +1,5 @@
 import * as React from 'react'
 import {
-  Plus,
   CheckCircle2,
   XCircle,
   Clock,
@@ -13,8 +12,8 @@ import {
   BookOpen,
   RefreshCw,
   AlertTriangle,
+  Printer,
 } from 'lucide-react'
-import PageHeader from '@/components/ui/PageHeader'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -33,19 +32,26 @@ import {
   sendJournalReminder,
   sendBulkJournalReminders,
   isUsingLocalJournalFallback,
+  printDailyJournalsPdf,
+  getCurriculumTps,
   type DailyJournalWithDetails,
   type JournalStatus,
   type TeacherJournalComplianceItem,
+  type CurriculumTpItem,
 } from '@/services/journalService'
 import type { Class } from '@/types/database.types'
-import JournalFormModal, { type JournalFormValues } from './JournalFormModal'
+import JournalFormModal, {
+  JournalFormFields,
+  type JournalFormValues,
+} from './JournalFormModal'
 import JournalReviewModal, { JournalStatusBadge } from './JournalReviewModal'
+import CurriculumTpTab from './CurriculumTpTab'
 
 function todayISO(): string {
   return new Date().toISOString().slice(0, 10)
 }
 
-type ActiveTab = 'jurnal' | 'kepatuhan'
+type ActiveTab = 'jurnal' | 'master_tp' | 'kepatuhan'
 
 export default function JournalsPage() {
   const profile = useAuthStore((s) => s.profile)
@@ -63,6 +69,10 @@ export default function JournalsPage() {
   // Data kelas untuk filter & form
   const [classes, setClasses] = React.useState<Class[]>([])
 
+  // Rentang tanggal untuk Cetak Jurnal di bagian kanan atas (sesuai referensi gambar)
+  const [printStartDate, setPrintStartDate] = React.useState(todayISO())
+  const [printEndDate, setPrintEndDate] = React.useState(todayISO())
+
   // Filter daftar jurnal
   const [filterClassId, setFilterClassId] = React.useState('')
   const [filterStatus, setFilterStatus] = React.useState<JournalStatus | ''>('')
@@ -72,7 +82,7 @@ export default function JournalsPage() {
   const [journals, setJournals] = React.useState<DailyJournalWithDetails[]>([])
   const [journalsLoading, setJournalsLoading] = React.useState(true)
 
-  // Modal tambah/edit (Guru)
+  // Modal edit jurnal (Guru)
   const [formOpen, setFormOpen] = React.useState(false)
   const [editingJournal, setEditingJournal] = React.useState<DailyJournalWithDetails | undefined>(
     undefined
@@ -87,7 +97,11 @@ export default function JournalsPage() {
     React.useState<DailyJournalWithDetails | null>(null)
   const [deleteLoading, setDeleteLoading] = React.useState(false)
 
-  // Tab 2: Pantauan Kepatuhan Guru & Pengingat (Admin / Kepsek)
+  // Tab Master Data TP (Kurikulum)
+  const [curriculumTps, setCurriculumTps] = React.useState<CurriculumTpItem[]>([])
+  const [curriculumTpsLoading, setCurriculumTpsLoading] = React.useState(false)
+
+  // Tab 3: Pantauan Kepatuhan Guru & Pengingat (Admin / Kepsek)
   const [complianceDate, setComplianceDate] = React.useState(todayISO())
   const [complianceList, setComplianceList] = React.useState<TeacherJournalComplianceItem[]>([])
   const [complianceLoading, setComplianceLoading] = React.useState(false)
@@ -103,6 +117,30 @@ export default function JournalsPage() {
         setClasses([])
       })
   }, [profile?.school_id, activeAcademicYear?.id])
+
+  // Load Master Data TP (Kurikulum)
+  const loadCurriculumTps = React.useCallback(async () => {
+    setCurriculumTpsLoading(true)
+    try {
+      const items = await getCurriculumTps(profile?.school_id ?? undefined)
+      setCurriculumTps(items)
+    } catch {
+      setCurriculumTps([])
+    } finally {
+      setCurriculumTpsLoading(false)
+    }
+  }, [profile?.school_id])
+
+  React.useEffect(() => {
+    void loadCurriculumTps()
+  }, [loadCurriculumTps])
+
+  // Kelas otomatis untuk wali kelas yang sedang login
+  const defaultGuruClassId = React.useMemo(() => {
+    if (!profile?.id) return classes[0]?.id ?? ''
+    const homeroomClass = classes.find((c) => c.homeroom_teacher_id === profile.id)
+    return homeroomClass?.id ?? classes[0]?.id ?? ''
+  }, [classes, profile?.id])
 
   const loadJournals = React.useCallback(async () => {
     if (!profile?.school_id) {
@@ -151,26 +189,58 @@ export default function JournalsPage() {
     }
   }, [activeTab, canViewCompliance, loadCompliance])
 
-  // Handlers Guru
-  async function handleFormSubmit(values: JournalFormValues) {
+  // Handlers Guru (Tambah langsung dari form "Input Jurnal Hari Ini" & Edit dari modal)
+  async function handleCreateSubmit(values: JournalFormValues) {
     if (!profile?.school_id) return
     try {
-      if (editingJournal) {
-        await updateDailyJournal(editingJournal.id, values)
-        toastSuccess('Jurnal diperbarui', 'Jurnal harian berhasil diperbarui dan diajukan ulang.')
-      } else {
-        await createDailyJournal({
-          school_id: profile.school_id,
-          teacher_id: profile.id,
-          ...values,
-        })
-        toastSuccess('Jurnal tersimpan', 'Jurnal harian berhasil dibuat dan menunggu tinjauan.')
-      }
+      await createDailyJournal({
+        school_id: profile.school_id,
+        teacher_id: profile.id,
+        ...values,
+      })
+      toastSuccess('Jurnal tersimpan', 'Jurnal pembelajaran berhasil disimpan ke sistem.')
+      await loadJournals()
+    } catch (err) {
+      toastError('Gagal menyimpan jurnal', (err as Error).message)
+    }
+  }
+
+  async function handleEditSubmit(values: JournalFormValues) {
+    if (!profile?.school_id || !editingJournal) return
+    try {
+      await updateDailyJournal(editingJournal.id, values)
+      toastSuccess('Jurnal diperbarui', 'Jurnal pembelajaran berhasil diperbarui dan diajukan ulang.')
       setFormOpen(false)
       setEditingJournal(undefined)
       await loadJournals()
     } catch (err) {
-      toastError('Gagal menyimpan jurnal', (err as Error).message)
+      toastError('Gagal memperbarui jurnal', (err as Error).message)
+    }
+  }
+
+  function handlePrintJournals() {
+    if (printStartDate && printEndDate && printStartDate > printEndDate) {
+      toastError(
+        'Rentang tanggal tidak valid',
+        'Tanggal awal cetak tidak boleh melebihi tanggal akhir.'
+      )
+      return
+    }
+    const filteredForPrint = journals.filter((j) => {
+      if (printStartDate && j.journal_date < printStartDate) return false
+      if (printEndDate && j.journal_date > printEndDate) return false
+      return true
+    })
+    const targetList = filteredForPrint.length > 0 ? filteredForPrint : journals
+    try {
+      printDailyJournalsPdf(targetList, {
+        startDate: printStartDate || undefined,
+        endDate: printEndDate || undefined,
+        schoolName: 'SDN Ciater 03',
+      })
+      toastSuccess('Dialog cetak dibuka', 'Gunakan dialog cetak browser untuk menyimpan PDF.')
+    } catch (err) {
+      toastError('Gagal mencetak jurnal', (err as Error).message)
     }
   }
 
@@ -275,43 +345,55 @@ export default function JournalsPage() {
 
   return (
     <div className="space-y-6 p-6">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <PageHeader
-          title="Jurnal Harian"
-          description={
-            isGuru
-              ? 'Catat kegiatan pembelajaran harian dan pantau hasil tinjauan Kepala Sekolah'
+      {/* Header Jurnal Pembelajaran + Rentang Tanggal & Tombol Cetak Jurnal */}
+      <div className="flex flex-col gap-4 border-b border-border pb-4 lg:flex-row lg:items-center lg:justify-between">
+        <div>
+          <h1 className="inline-block border-b-2 border-primary pb-1.5 text-xl font-bold text-foreground">
+            Jurnal Pembelajaran
+          </h1>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {isGuru
+              ? 'Input jurnal pembelajaran harian (CP, TP, Materi Pokok, IKTP, Metode, Media, Refleksi) dan pantau tinjauan Kepala Sekolah'
               : isKepsek
-                ? 'Tinjau jurnal mengajar harian guru (terima atau tolak) dan pantau kepatuhan'
-                : 'Pantau pengisian jurnal harian guru dan kirimkan pengingat in-app'
-          }
-        />
+                ? 'Tinjau jurnal pembelajaran harian guru (terima atau tolak) dan cetak laporan jurnal'
+                : 'Pantau pengisian jurnal harian guru, kirimkan pengingat in-app, dan cetak jurnal'}
+          </p>
+        </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          <Input
+            type="date"
+            aria-label="Dari tanggal cetak jurnal"
+            value={printStartDate}
+            onChange={(e) => setPrintStartDate(e.target.value)}
+            className="h-9 w-36 text-xs"
+          />
+          <Input
+            type="date"
+            aria-label="Sampai tanggal cetak jurnal"
+            value={printEndDate}
+            onChange={(e) => setPrintEndDate(e.target.value)}
+            className="h-9 w-36 text-xs"
+          />
+          <Button type="button" size="sm" onClick={handlePrintJournals}>
+            <Printer className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" />
+            Cetak Jurnal
+          </Button>
           <Button
             type="button"
             variant="outline"
+            size="sm"
             onClick={() => {
               void loadJournals()
+              void loadCurriculumTps()
               if (activeTab === 'kepatuhan' && canViewCompliance) {
                 void loadCompliance()
               }
             }}
           >
-            <RefreshCw className="mr-1.5 h-4 w-4" aria-hidden="true" />
+            <RefreshCw className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" />
             Muat Ulang
           </Button>
-          {isGuru && (
-            <Button
-              onClick={() => {
-                setEditingJournal(undefined)
-                setFormOpen(true)
-              }}
-            >
-              <Plus className="mr-1.5 h-4 w-4" aria-hidden="true" />
-              Buat Jurnal Harian
-            </Button>
-          )}
         </div>
       </div>
 
@@ -333,21 +415,33 @@ export default function JournalsPage() {
         </div>
       )}
 
-      {/* Tab switcher untuk Staf Admin & Kepala Sekolah */}
-      {canViewCompliance && (
-        <div className="flex gap-1 rounded-lg border border-border bg-muted p-1 w-fit">
-          <button
-            type="button"
-            onClick={() => setActiveTab('jurnal')}
-            aria-pressed={activeTab === 'jurnal'}
-            className={`rounded-md px-4 py-1.5 text-sm font-medium transition-colors ${
-              activeTab === 'jurnal'
-                ? 'bg-background text-foreground shadow-sm'
-                : 'text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            Daftar Jurnal Harian
-          </button>
+      {/* Tab switcher: Jurnal Pembelajaran, Master Data TP (Kurikulum), & Pantauan Guru */}
+      <div className="flex flex-wrap gap-1 rounded-lg border border-border bg-muted p-1 w-fit">
+        <button
+          type="button"
+          onClick={() => setActiveTab('jurnal')}
+          aria-pressed={activeTab === 'jurnal'}
+          className={`rounded-md px-4 py-1.5 text-sm font-medium transition-colors ${
+            activeTab === 'jurnal'
+              ? 'bg-background text-foreground shadow-sm'
+              : 'text-muted-foreground hover:text-foreground'
+          }`}
+        >
+          Daftar Jurnal Harian
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab('master_tp')}
+          aria-pressed={activeTab === 'master_tp'}
+          className={`rounded-md px-4 py-1.5 text-sm font-medium transition-colors ${
+            activeTab === 'master_tp'
+              ? 'bg-background text-foreground shadow-sm'
+              : 'text-muted-foreground hover:text-foreground'
+          }`}
+        >
+          Master Data TP (Kurikulum)
+        </button>
+        {canViewCompliance && (
           <button
             type="button"
             onClick={() => setActiveTab('kepatuhan')}
@@ -360,7 +454,40 @@ export default function JournalsPage() {
           >
             Pantauan &amp; Pengingat Guru
           </button>
-        </div>
+        )}
+      </div>
+
+      {/* Panel Form Langsung: "Input Jurnal Hari Ini" untuk Guru (Sesuai Gambar Referensi) */}
+      {isGuru && activeTab === 'jurnal' && (
+        <section
+          aria-label="Input Jurnal Hari Ini"
+          className="rounded-xl border border-border bg-card p-6 shadow-sm"
+        >
+          <h2 className="mb-4 flex items-center gap-2 text-base font-bold text-foreground">
+            <BookOpen className="h-4 w-4 text-primary" aria-hidden="true" />
+            Input Jurnal Hari Ini
+          </h2>
+
+          <JournalFormFields
+            classes={classes}
+            defaultClassId={defaultGuruClassId}
+            curriculumTps={curriculumTps}
+            onSubmit={handleCreateSubmit}
+          />
+        </section>
+      )}
+
+      {/* ── TAB 2: Master Data TP (Kurikulum) ──────────────────────────────── */}
+      {activeTab === 'master_tp' && (
+        <CurriculumTpTab
+          schoolId={profile?.school_id ?? ''}
+          userId={profile?.id ?? ''}
+          classes={classes}
+          items={curriculumTps}
+          loading={curriculumTpsLoading}
+          canManage={isGuru || isAdmin || isKepsek}
+          onRefresh={loadCurriculumTps}
+        />
       )}
 
       {/* ── TAB 1: Daftar Jurnal Harian ────────────────────────────────────── */}
@@ -410,7 +537,7 @@ export default function JournalsPage() {
                 <option value="">Semua Kelas</option>
                 {classes.map((c) => (
                   <option key={c.id} value={c.id}>
-                    {c.name}
+                    Kelas {c.name}
                   </option>
                 ))}
               </select>
@@ -464,7 +591,7 @@ export default function JournalsPage() {
             {journalsLoading ? (
               <div className="flex items-center justify-center py-12 text-sm text-muted-foreground">
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Memuat daftar jurnal harian...
+                Memuat daftar jurnal pembelajaran...
               </div>
             ) : journals.length === 0 ? (
               <div className="flex flex-col items-center justify-center px-6 py-12 text-center">
@@ -472,8 +599,8 @@ export default function JournalsPage() {
                 <h3 className="text-sm font-semibold text-foreground">Belum ada jurnal harian</h3>
                 <p className="mt-1 max-w-sm text-xs text-muted-foreground">
                   {isGuru
-                    ? 'Klik tombol "Buat Jurnal Harian" untuk mencatat pelaksanaan pembelajaran hari ini.'
-                    : 'Belum ada jurnal harian guru yang cocok dengan filter yang dipilih.'}
+                    ? 'Isi form "Input Jurnal Hari Ini" di atas lalu klik "Simpan Jurnal ke Sistem".'
+                    : 'Belum ada jurnal pembelajaran guru yang cocok dengan filter yang dipilih.'}
                 </p>
               </div>
             ) : (
@@ -484,7 +611,7 @@ export default function JournalsPage() {
                       <th className="px-4 py-3">Tanggal</th>
                       {!isGuru && <th className="px-4 py-3">Guru</th>}
                       <th className="px-4 py-3">Kelas</th>
-                      <th className="px-4 py-3">Mata Pelajaran &amp; Materi</th>
+                      <th className="px-4 py-3">Mapel, Materi &amp; Perangkat Ajar</th>
                       <th className="px-4 py-3">Status</th>
                       <th className="px-4 py-3 text-right">Aksi</th>
                     </tr>
@@ -499,11 +626,24 @@ export default function JournalsPage() {
                           <td className="px-4 py-3 text-foreground">{j.teacher_name}</td>
                         )}
                         <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">
-                          {j.class_name}
+                          Kelas {j.class_name}
                         </td>
                         <td className="max-w-md px-4 py-3">
                           <div className="font-medium text-foreground">{j.subject}</div>
-                          <div className="text-xs text-muted-foreground">{j.topic}</div>
+                          <div className="text-xs text-muted-foreground">
+                            Materi Pokok: <span className="text-foreground">{j.topic}</span>
+                          </div>
+                          {(j.method || j.media || j.iktp) && (
+                            <div className="mt-0.5 text-[11px] text-muted-foreground">
+                              {[
+                                j.iktp ? `IKTP: ${j.iktp}` : '',
+                                j.method ? `Metode: ${j.method}` : '',
+                                j.media ? `Media: ${j.media}` : '',
+                              ]
+                                .filter(Boolean)
+                                .join(' • ')}
+                            </div>
+                          )}
                           {j.review_notes && (
                             <div className="mt-1 rounded bg-muted/60 px-2 py-1 text-xs text-muted-foreground">
                               <span className="font-medium text-foreground">Catatan Kepsek: </span>
@@ -723,7 +863,9 @@ export default function JournalsPage() {
         open={formOpen}
         initialData={editingJournal}
         classes={classes}
-        onSubmit={handleFormSubmit}
+        defaultClassId={defaultGuruClassId}
+        curriculumTps={curriculumTps}
+        onSubmit={handleEditSubmit}
         onClose={() => {
           setFormOpen(false)
           setEditingJournal(undefined)

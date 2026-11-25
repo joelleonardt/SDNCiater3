@@ -1350,3 +1350,57 @@ ALTER TABLE public.notes
 ALTER TABLE public.notes
   ADD CONSTRAINT notes_author_id_fkey
   FOREIGN KEY (author_id) REFERENCES public.profiles(id) ON DELETE CASCADE;
+
+-- ---------------------------------------------------------------------------
+-- 8. Tabel Master Data TP (Kurikulum): public.curriculum_tps
+--    Menyimpan Capaian Pembelajaran (CP) dan Tujuan Pembelajaran (TP)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.curriculum_tps (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  school_id       uuid REFERENCES public.schools(id) ON DELETE CASCADE,
+  class_level     text NOT NULL,
+  subject         text NOT NULL,
+  tp_code         text NOT NULL,
+  semester        text NOT NULL DEFAULT 'Semester 1',
+  cp              text NOT NULL,
+  tp_description  text NOT NULL,
+  created_by      uuid REFERENCES public.profiles(id) ON DELETE SET NULL,
+  created_at      timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_curriculum_tps_school_subject
+  ON public.curriculum_tps (school_id, class_level, subject);
+
+ALTER TABLE public.curriculum_tps ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "curriculum_tps_select_school" ON public.curriculum_tps;
+CREATE POLICY "curriculum_tps_select_school"
+  ON public.curriculum_tps FOR SELECT
+  USING (
+    school_id IS NULL
+    OR school_id = public.get_my_school_id()
+  );
+
+DROP POLICY IF EXISTS "curriculum_tps_insert_school" ON public.curriculum_tps;
+CREATE POLICY "curriculum_tps_insert_school"
+  ON public.curriculum_tps FOR INSERT
+  WITH CHECK (
+    public.get_my_role() IN ('Guru', 'Kepala_Sekolah', 'Staf_Admin')
+    AND (school_id IS NULL OR school_id = public.get_my_school_id())
+  );
+
+DROP POLICY IF EXISTS "curriculum_tps_update_school" ON public.curriculum_tps;
+CREATE POLICY "curriculum_tps_update_school"
+  ON public.curriculum_tps FOR UPDATE
+  USING (
+    public.get_my_role() IN ('Guru', 'Kepala_Sekolah', 'Staf_Admin')
+    AND (school_id IS NULL OR school_id = public.get_my_school_id())
+  );
+
+DROP POLICY IF EXISTS "curriculum_tps_delete_school" ON public.curriculum_tps;
+CREATE POLICY "curriculum_tps_delete_school"
+  ON public.curriculum_tps FOR DELETE
+  USING (
+    public.get_my_role() IN ('Guru', 'Kepala_Sekolah', 'Staf_Admin')
+    AND (school_id IS NULL OR school_id = public.get_my_school_id())
+  );

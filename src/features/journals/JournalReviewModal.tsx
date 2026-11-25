@@ -3,7 +3,10 @@ import { CheckCircle2, XCircle, Clock, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { cn } from '@/lib/utils'
-import type { DailyJournalWithDetails } from '@/services/journalService'
+import {
+  parseJournalActivities,
+  type DailyJournalWithDetails,
+} from '@/services/journalService'
 
 export interface JournalReviewModalProps {
   open: boolean
@@ -50,6 +53,13 @@ export default function JournalReviewModal({
   if (!open || !journal) return null
 
   const currentJournal = journal
+  const parsed = parseJournalActivities(currentJournal.activities)
+  const cp = currentJournal.cp ?? parsed.cp
+  const tp = currentJournal.tp ?? parsed.tp
+  const iktp = currentJournal.iktp ?? parsed.iktp
+  const method = currentJournal.method ?? parsed.method
+  const media = currentJournal.media ?? parsed.media
+  const reflection = currentJournal.reflection || parsed.reflection || currentJournal.activities
 
   async function handleDecision(decision: 'Disetujui' | 'Ditolak') {
     if (decision === 'Ditolak' && !notes.trim()) {
@@ -79,16 +89,16 @@ export default function JournalReviewModal({
         role="dialog"
         aria-modal="true"
         aria-labelledby="journal-review-title"
-        className="w-full max-w-lg rounded-xl border border-border bg-background shadow-xl"
+        className="w-full max-w-2xl rounded-xl border border-border bg-background shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start justify-between gap-3 border-b border-border px-6 py-4">
           <div>
             <h2 id="journal-review-title" className="text-base font-semibold text-foreground">
-              {canReview ? 'Tinjauan Jurnal Harian Guru' : 'Detail Jurnal Harian'}
+              {canReview ? 'Tinjauan Jurnal Pembelajaran Guru' : 'Detail Jurnal Pembelajaran'}
             </h2>
             <p className="mt-0.5 text-xs text-muted-foreground">
-              {currentJournal.teacher_name} • {currentJournal.class_name} •{' '}
+              {currentJournal.teacher_name} • Kelas {currentJournal.class_name} •{' '}
               {currentJournal.journal_date}
             </p>
           </div>
@@ -96,7 +106,7 @@ export default function JournalReviewModal({
         </div>
 
         <div className="max-h-[75vh] space-y-4 overflow-y-auto px-6 py-5 text-sm">
-          <div className="grid grid-cols-2 gap-3 rounded-lg border bg-muted/30 p-3 text-xs">
+          <div className="grid grid-cols-2 gap-3 rounded-lg border bg-muted/30 p-3 text-xs sm:grid-cols-3">
             <div>
               <span className="block text-muted-foreground">Guru Pengajar</span>
               <span className="font-medium text-foreground">{currentJournal.teacher_name}</span>
@@ -104,30 +114,68 @@ export default function JournalReviewModal({
             <div>
               <span className="block text-muted-foreground">Kelas &amp; Tanggal</span>
               <span className="font-medium text-foreground">
-                {currentJournal.class_name} ({currentJournal.journal_date})
+                Kelas {currentJournal.class_name} ({currentJournal.journal_date})
               </span>
             </div>
-            <div className="col-span-2">
+            <div className="col-span-2 sm:col-span-1">
               <span className="block text-muted-foreground">Mata Pelajaran</span>
               <span className="font-medium text-foreground">{currentJournal.subject}</span>
             </div>
           </div>
 
-          <div>
-            <span className="block text-xs font-medium text-muted-foreground">
-              Materi / Topik Pembelajaran
-            </span>
-            <p className="mt-1 rounded-md border bg-card px-3 py-2 font-medium text-foreground">
-              {currentJournal.topic}
-            </p>
+          {cp && (
+            <div>
+              <span className="block text-xs font-medium text-muted-foreground">
+                Capaian Pembelajaran (CP)
+              </span>
+              <p className="mt-1 rounded-md border bg-card px-3 py-2 text-xs leading-relaxed text-foreground">
+                {cp}
+              </p>
+            </div>
+          )}
+
+          {tp && (
+            <div>
+              <span className="block text-xs font-medium text-muted-foreground">
+                Tujuan Pembelajaran (TP)
+              </span>
+              <p className="mt-1 whitespace-pre-wrap rounded-md border bg-card px-3 py-2 text-xs leading-relaxed text-foreground">
+                {tp}
+              </p>
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <div>
+              <span className="block text-xs font-medium text-muted-foreground">Materi Pokok</span>
+              <p className="mt-1 rounded-md border bg-card px-3 py-2 font-medium text-foreground">
+                {currentJournal.topic}
+              </p>
+            </div>
+            <div>
+              <span className="block text-xs font-medium text-muted-foreground">
+                Indikator (IKTP)
+              </span>
+              <p className="mt-1 rounded-md border bg-card px-3 py-2 text-foreground">
+                {iktp || '—'}
+              </p>
+            </div>
+            <div>
+              <span className="block text-xs font-medium text-muted-foreground">
+                Metode &amp; Media
+              </span>
+              <p className="mt-1 rounded-md border bg-card px-3 py-2 text-foreground">
+                {[method, media].filter(Boolean).join(' • ') || '—'}
+              </p>
+            </div>
           </div>
 
           <div>
             <span className="block text-xs font-medium text-muted-foreground">
-              Kegiatan &amp; Catatan Pembelajaran
+              Refleksi &amp; Catatan Pembelajaran
             </span>
-            <p className="mt-1 whitespace-pre-wrap rounded-md border bg-card px-3 py-2.5 text-foreground leading-relaxed">
-              {currentJournal.activities}
+            <p className="mt-1 whitespace-pre-wrap rounded-md border bg-card px-3 py-2.5 leading-relaxed text-foreground">
+              {reflection}
             </p>
           </div>
 
